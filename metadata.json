@@ -1,0 +1,6 @@
+{
+  "name": "Leão Kids",
+  "description": "Clone do YouTube Kids com Controle Parental Avançado para bloquear conteúdo indesejado, limitar tempo de tela e monitorar atividades.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
