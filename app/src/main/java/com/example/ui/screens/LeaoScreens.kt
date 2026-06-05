@@ -1775,6 +1775,7 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
     var editAvatarUrl by remember { mutableStateOf("") }
 
     var activeTab by remember { mutableStateOf(0) }
+    val coroutineScope = rememberCoroutineScope()
 
     val accountChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -2766,7 +2767,7 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
                         Spacer(modifier = Modifier.height(12.dp))
                         Button(
                             onClick = {
-                                viewModel.viewModelScope.launch(Dispatchers.Main) {
+                                coroutineScope.launch {
                                     Toast.makeText(context, "Buscando detalhes do vídeo...", Toast.LENGTH_SHORT).show()
                                     val videoDetails = withContext(Dispatchers.IO) {
                                         com.example.data.GeminiService.getVideoDetailsViaAI(videoId, webTitle)
