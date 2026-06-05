@@ -123,7 +123,10 @@ class LeaoRepository(private val dao: LeaoDao) {
                     isBoy = it.isBoy,
                     avatarUrl = it.avatarUrl,
                     creationTime = it.creationTime,
-                    parentEmail = it.parentEmail
+                    parentEmail = it.parentEmail,
+                    screenTimeLimitMinutes = it.screenTimeLimitMinutes,
+                    isStrictChannelMode = it.isStrictChannelMode,
+                    isSmartCuratorMode = it.isSmartCuratorMode
                 )
             })
 
@@ -132,9 +135,6 @@ class LeaoRepository(private val dao: LeaoDao) {
                     ParentConfig(
                         connectedEmail = remoteConfig.connectedEmail,
                         pinCode = remoteConfig.pinCode,
-                        screenTimeLimitMinutes = remoteConfig.screenTimeLimitMinutes,
-                        isStrictChannelMode = remoteConfig.isStrictChannelMode,
-                        isSmartCuratorMode = remoteConfig.isSmartCuratorMode,
                         connectedName = remoteConfig.connectedName,
                         connectedPhoto = remoteConfig.connectedPhoto
                     )
@@ -144,6 +144,7 @@ class LeaoRepository(private val dao: LeaoDao) {
             dao.insertApprovedVideos(remoteApproved.map {
                 ApprovedVideo(
                     id = it.id,
+                    profileId = it.profileId,
                     parentEmail = it.parentEmail,
                     title = it.title,
                     channelName = it.channelName,
@@ -158,6 +159,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                 BlockedWord(
                     id = it.id,
                     word = it.word,
+                    profileId = it.profileId,
                     parentEmail = it.parentEmail
                 )
             })
@@ -166,6 +168,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                 BlockedChannel(
                     id = it.id,
                     channelName = it.channelName,
+                    profileId = it.profileId,
                     parentEmail = it.parentEmail
                 )
             })
@@ -174,6 +177,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                 AllowedChannel(
                     id = it.id,
                     channelName = it.channelName,
+                    profileId = it.profileId,
                     parentEmail = it.parentEmail
                 )
             })
@@ -242,8 +246,8 @@ class LeaoRepository(private val dao: LeaoDao) {
     }
 
     // --- Approved Videos CRUD ---
-    fun getApprovedVideos(email: String): Flow<List<KidVideo>> {
-        return dao.getAllApprovedVideos(email).map { list ->
+    fun getApprovedVideos(profileId: Long, email: String): Flow<List<KidVideo>> {
+        return dao.getAllApprovedVideos(profileId, email).map { list ->
             list.map { entity ->
                 KidVideo(
                     id = entity.id,
@@ -258,10 +262,11 @@ class LeaoRepository(private val dao: LeaoDao) {
         }
     }
 
-    suspend fun saveApprovedVideo(video: KidVideo, email: String) {
+    suspend fun saveApprovedVideo(profileId: Long, video: KidVideo, email: String) {
         dao.insertApprovedVideo(
             ApprovedVideo(
                 id = video.id,
+                profileId = profileId,
                 parentEmail = email,
                 title = video.title,
                 channelName = video.channelName,
@@ -276,6 +281,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                 SupabaseService.pushApprovedVideo(
                     SupabaseApprovedVideo(
                         id = video.id,
+                        profileId = profileId,
                         parentEmail = email,
                         title = video.title,
                         channelName = video.channelName,
@@ -291,11 +297,11 @@ class LeaoRepository(private val dao: LeaoDao) {
         }
     }
 
-    suspend fun deleteApprovedVideo(id: String, email: String) {
-        dao.deleteApprovedVideo(id, email)
+    suspend fun deleteApprovedVideo(id: String, profileId: Long, email: String) {
+        dao.deleteApprovedVideo(id, profileId, email)
         if (SupabaseService.isConfigured() && email != "visitor") {
             try {
-                SupabaseService.deleteApprovedVideo(id, email)
+                SupabaseService.deleteApprovedVideo(id, profileId, email)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -306,7 +312,18 @@ class LeaoRepository(private val dao: LeaoDao) {
     fun getProfiles(email: String): Flow<List<ChildProfile>> = dao.getAllProfiles(email)
 
     suspend fun createProfile(name: String, isBoy: Boolean, avatarUrl: String, email: String): Long {
-        val id = dao.insertProfile(ChildProfile(name = name, isBoy = isBoy, avatarUrl = avatarUrl, parentEmail = email))
+        val id = dao.insertProfile(
+            ChildProfile(
+                name = name,
+                isBoy = isBoy,
+                avatarUrl = avatarUrl,
+                parentEmail = email,
+                screenTimeLimitMinutes = 60,
+                isStrictChannelMode = false,
+                isSmartCuratorMode = false
+            )
+        )
+        autoPopulateDefaultsForProfile(id, email)
         if (SupabaseService.isConfigured() && email != "visitor") {
             try {
                 SupabaseService.pushProfile(
@@ -316,7 +333,10 @@ class LeaoRepository(private val dao: LeaoDao) {
                         isBoy = isBoy,
                         avatarUrl = avatarUrl,
                         creationTime = System.currentTimeMillis(),
-                        parentEmail = email
+                        parentEmail = email,
+                        screenTimeLimitMinutes = 60,
+                        isStrictChannelMode = false,
+                        isSmartCuratorMode = false
                     )
                 )
             } catch (e: Exception) {
@@ -337,7 +357,10 @@ class LeaoRepository(private val dao: LeaoDao) {
                         isBoy = profile.isBoy,
                         avatarUrl = profile.avatarUrl,
                         creationTime = profile.creationTime,
-                        parentEmail = profile.parentEmail
+                        parentEmail = profile.parentEmail,
+                        screenTimeLimitMinutes = profile.screenTimeLimitMinutes,
+                        isStrictChannelMode = profile.isStrictChannelMode,
+                        isSmartCuratorMode = profile.isSmartCuratorMode
                     )
                 )
             } catch (e: Exception) {
@@ -533,13 +556,13 @@ class LeaoRepository(private val dao: LeaoDao) {
     }
 
     // --- Core parental rule lists ---
-    fun getBlockedWords(email: String): Flow<List<BlockedWord>> = dao.getBlockedWordsFlow(email)
-    fun getBlockedChannels(email: String): Flow<List<BlockedChannel>> = dao.getBlockedChannelsFlow(email)
-    fun getAllowedChannels(email: String): Flow<List<AllowedChannel>> = dao.getAllowedChannelsFlow(email)
-    fun getBlockedSearchAttempts(email: String): Flow<List<BlockedSearchAttempt>> = dao.getAllBlockedSearchAttempts(email)
+    fun getBlockedWords(profileId: Long, email: String): Flow<List<BlockedWord>> = dao.getBlockedWordsFlow(profileId, email)
+    fun getBlockedChannels(profileId: Long, email: String): Flow<List<BlockedChannel>> = dao.getBlockedChannelsFlow(profileId, email)
+    fun getAllowedChannels(profileId: Long, email: String): Flow<List<AllowedChannel>> = dao.getAllowedChannelsFlow(profileId, email)
+    fun getBlockedSearchAttempts(profileId: Long, email: String): Flow<List<BlockedSearchAttempt>> = dao.getBlockedSearchAttempts(profileId, email)
 
-    suspend fun addBlockedWord(word: String, email: String) {
-        val entry = BlockedWord(word = word.trim(), parentEmail = email)
+    suspend fun addBlockedWord(profileId: Long, word: String, email: String) {
+        val entry = BlockedWord(word = word.trim(), profileId = profileId, parentEmail = email)
         dao.addBlockedWord(entry)
         if (SupabaseService.isConfigured() && email != "visitor") {
             try {
@@ -547,6 +570,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                     SupabaseBlockedWord(
                         id = entry.id,
                         word = entry.word,
+                        profileId = profileId,
                         parentEmail = email
                     )
                 )
@@ -567,8 +591,8 @@ class LeaoRepository(private val dao: LeaoDao) {
         }
     }
 
-    suspend fun addBlockedChannel(channel: String, email: String) {
-        val entry = BlockedChannel(channelName = channel.trim(), parentEmail = email)
+    suspend fun addBlockedChannel(profileId: Long, channel: String, email: String) {
+        val entry = BlockedChannel(channelName = channel.trim(), profileId = profileId, parentEmail = email)
         dao.addBlockedChannel(entry)
         if (SupabaseService.isConfigured() && email != "visitor") {
             try {
@@ -576,6 +600,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                     SupabaseBlockedChannel(
                         id = entry.id,
                         channelName = entry.channelName,
+                        profileId = profileId,
                         parentEmail = email
                     )
                 )
@@ -596,8 +621,8 @@ class LeaoRepository(private val dao: LeaoDao) {
         }
     }
 
-    suspend fun addAllowedChannel(channel: String, email: String) {
-        val entry = AllowedChannel(channelName = channel.trim(), parentEmail = email)
+    suspend fun addAllowedChannel(profileId: Long, channel: String, email: String) {
+        val entry = AllowedChannel(channelName = channel.trim(), profileId = profileId, parentEmail = email)
         dao.addAllowedChannel(entry)
         if (SupabaseService.isConfigured() && email != "visitor") {
             try {
@@ -605,6 +630,7 @@ class LeaoRepository(private val dao: LeaoDao) {
                     SupabaseAllowedChannel(
                         id = entry.id,
                         channelName = entry.channelName,
+                        profileId = profileId,
                         parentEmail = email
                     )
                 )
@@ -669,9 +695,6 @@ class LeaoRepository(private val dao: LeaoDao) {
                     SupabaseConfig(
                         connectedEmail = config.connectedEmail,
                         pinCode = config.pinCode,
-                        screenTimeLimitMinutes = config.screenTimeLimitMinutes,
-                        isStrictChannelMode = config.isStrictChannelMode,
-                        isSmartCuratorMode = config.isSmartCuratorMode,
                         connectedName = config.connectedName,
                         connectedPhoto = config.connectedPhoto
                     )
@@ -693,39 +716,40 @@ class LeaoRepository(private val dao: LeaoDao) {
 
     // --- Startup Helper: Auto Populate defaults on launch if empty ---
     suspend fun autoPopulateDefaults(email: String) {
-        // 1. Preload defaults keywords
-        val words = dao.getBlockedWordsList(email)
-        if (words.isEmpty()) {
-            val defaults = listOf("Luta", "Horror", "Assustador", "Morte", "Sangue", "Violência", "Terror", "Arma", "Monstro", "Crime", "Demônio")
-            defaults.forEach { addBlockedWord(it, email) }
-        }
-
-        // 2. Preload blocked channels
-        val channels = dao.getBlockedChannelsList(email)
-        if (channels.isEmpty()) {
-            val defaults = listOf("Canal XYZ", "Monster Mash", "Game Pro Kids 12+")
-            defaults.forEach { addBlockedChannel(it, email) }
-        }
-
-        // 3. Preload allowed channels
-        val allowed = dao.getAllowedChannelsList(email)
-        if (allowed.isEmpty()) {
-            val defaults = listOf("Galinha Pintadinha", "Manual do Mundo", "Mundo Bita", "NASA", "National Geographic Kids")
-            defaults.forEach { addAllowedChannel(it, email) }
-        }
-
-        // 4. Preload parent config (default settings, no email/name)
+        // Preload parent config (default settings, no email/name)
         val config = dao.getParentConfig(email)
         if (config == null) {
             saveConfig(
                 ParentConfig(
                     connectedEmail = email,
                     pinCode = "1234",
-                    screenTimeLimitMinutes = 60,
                     connectedName = null,
                     connectedPhoto = null
                 )
             )
+        }
+    }
+
+    suspend fun autoPopulateDefaultsForProfile(profileId: Long, email: String) {
+        // 1. Preload defaults keywords
+        val words = dao.getBlockedWordsList(profileId, email)
+        if (words.isEmpty()) {
+            val defaults = listOf("Luta", "Horror", "Assustador", "Morte", "Sangue", "Violência", "Terror", "Arma", "Monstro", "Crime", "Demônio")
+            defaults.forEach { addBlockedWord(profileId, it, email) }
+        }
+
+        // 2. Preload blocked channels
+        val channels = dao.getBlockedChannelsList(profileId, email)
+        if (channels.isEmpty()) {
+            val defaults = listOf("Canal XYZ", "Monster Mash", "Game Pro Kids 12+")
+            defaults.forEach { addBlockedChannel(profileId, it, email) }
+        }
+
+        // 3. Preload allowed channels
+        val allowed = dao.getAllowedChannelsList(profileId, email)
+        if (allowed.isEmpty()) {
+            val defaults = listOf("Galinha Pintadinha", "Manual do Mundo", "Mundo Bita", "NASA", "National Geographic Kids")
+            defaults.forEach { addAllowedChannel(profileId, it, email) }
         }
     }
 }

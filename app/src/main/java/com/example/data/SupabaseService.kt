@@ -24,16 +24,16 @@ data class SupabaseProfile(
     @Json(name = "is_boy") val isBoy: Boolean,
     @Json(name = "avatar_url") val avatarUrl: String,
     @Json(name = "creation_time") val creationTime: Long,
-    @Json(name = "parent_email") val parentEmail: String
+    @Json(name = "parent_email") val parentEmail: String,
+    @Json(name = "screen_time_limit_minutes") val screenTimeLimitMinutes: Int = 60,
+    @Json(name = "is_strict_channel_mode") val isStrictChannelMode: Boolean = false,
+    @Json(name = "is_smart_curator_mode") val isSmartCuratorMode: Boolean = false
 )
 
 @JsonClass(generateAdapter = true)
 data class SupabaseConfig(
     @Json(name = "connected_email") val connectedEmail: String,
     @Json(name = "pin_code") val pinCode: String,
-    @Json(name = "screen_time_limit_minutes") val screenTimeLimitMinutes: Int,
-    @Json(name = "is_strict_channel_mode") val isStrictChannelMode: Boolean,
-    @Json(name = "is_smart_curator_mode") val isSmartCuratorMode: Boolean,
     @Json(name = "connected_name") val connectedName: String?,
     @Json(name = "connected_photo") val connectedPhoto: String?
 )
@@ -41,6 +41,7 @@ data class SupabaseConfig(
 @JsonClass(generateAdapter = true)
 data class SupabaseApprovedVideo(
     @Json(name = "id") val id: String,
+    @Json(name = "profile_id") val profileId: Long = 0,
     @Json(name = "parent_email") val parentEmail: String,
     @Json(name = "title") val title: String,
     @Json(name = "channel_name") val channelName: String,
@@ -54,6 +55,7 @@ data class SupabaseApprovedVideo(
 data class SupabaseBlockedWord(
     @Json(name = "id") val id: Long = 0,
     @Json(name = "word") val word: String,
+    @Json(name = "profile_id") val profileId: Long = 0,
     @Json(name = "parent_email") val parentEmail: String
 )
 
@@ -61,6 +63,7 @@ data class SupabaseBlockedWord(
 data class SupabaseBlockedChannel(
     @Json(name = "id") val id: Long = 0,
     @Json(name = "channel_name") val channelName: String,
+    @Json(name = "profile_id") val profileId: Long = 0,
     @Json(name = "parent_email") val parentEmail: String
 )
 
@@ -68,6 +71,7 @@ data class SupabaseBlockedChannel(
 data class SupabaseAllowedChannel(
     @Json(name = "id") val id: Long = 0,
     @Json(name = "channel_name") val channelName: String,
+    @Json(name = "profile_id") val profileId: Long = 0,
     @Json(name = "parent_email") val parentEmail: String
 )
 
@@ -166,6 +170,7 @@ interface SupabaseApi {
     @DELETE("rest/v1/approved_videos")
     suspend fun deleteApprovedVideo(
         @Query("id") idFilter: String,
+        @Query("profile_id") profileIdFilter: String,
         @Query("parent_email") emailFilter: String
     ): Response<Unit>
 
@@ -440,10 +445,10 @@ object SupabaseService {
         }
     }
 
-    suspend fun deleteApprovedVideo(id: String, email: String) = withContext(Dispatchers.IO) {
+    suspend fun deleteApprovedVideo(id: String, profileId: Long, email: String) = withContext(Dispatchers.IO) {
         val client = api ?: return@withContext
         try {
-            client.deleteApprovedVideo("eq.$id", "eq.$email")
+            client.deleteApprovedVideo("eq.$id", "eq.$profileId", "eq.$email")
         } catch (e: Exception) {
             e.printStackTrace()
         }

@@ -80,36 +80,95 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     private val _unsafeSearchResponse = MutableStateFlow<ModerationResult?>(null)
     val unsafeSearchResponse: StateFlow<ModerationResult?> = _unsafeSearchResponse.asStateFlow()
 
+    // --- Selected Config Profile ID in Parent Dashboard ---
+    private val _selectedConfigProfileId = MutableStateFlow<Long?>(null)
+    val selectedConfigProfileId: StateFlow<Long?> = _selectedConfigProfileId.asStateFlow()
+
+    fun selectConfigProfileId(profileId: Long?) {
+        _selectedConfigProfileId.value = profileId
+    }
+
     // --- Room Data Lists mapped to states reactively based on activeEmail ---
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val allProfiles: StateFlow<List<ChildProfile>> = _activeEmail
         .flatMapLatest { email -> repository.getProfiles(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    // Config profile is the child profile selected for settings updates (defaults to first profile if not selected)
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val blockedWords: StateFlow<List<BlockedWord>> = _activeEmail
-        .flatMapLatest { email -> repository.getBlockedWords(email) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val currentConfigProfile: StateFlow<ChildProfile?> = combine(_selectedConfigProfileId, allProfiles) { selectedId, profiles ->
+        profiles.firstOrNull { it.id == selectedId } ?: profiles.firstOrNull()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val blockedChannels: StateFlow<List<BlockedChannel>> = _activeEmail
-        .flatMapLatest { email -> repository.getBlockedChannels(email) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val blockedWords: StateFlow<List<BlockedWord>> = combine(_activeEmail, currentConfigProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getBlockedWords(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val allowedChannels: StateFlow<List<AllowedChannel>> = _activeEmail
-        .flatMapLatest { email -> repository.getAllowedChannels(email) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val blockedChannels: StateFlow<List<BlockedChannel>> = combine(_activeEmail, currentConfigProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getBlockedChannels(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val blockedSearchAttempts: StateFlow<List<BlockedSearchAttempt>> = _activeEmail
-        .flatMapLatest { email -> repository.getBlockedSearchAttempts(email) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val allowedChannels: StateFlow<List<AllowedChannel>> = combine(_activeEmail, currentConfigProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getAllowedChannels(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val blockedSearchAttempts: StateFlow<List<BlockedSearchAttempt>> = combine(_activeEmail, currentConfigProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getBlockedSearchAttempts(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val parentConfig: StateFlow<ParentConfig> = _activeEmail
         .flatMapLatest { email -> repository.getParentConfig(email).map { it ?: ParentConfig(connectedEmail = email) } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ParentConfig())
+
+    // --- Active Child Profile safety filter flows (used for current profile session) ---
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val activeProfileBlockedWords: StateFlow<List<BlockedWord>> = combine(_activeEmail, currentProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getBlockedWords(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val activeProfileBlockedChannels: StateFlow<List<BlockedChannel>> = combine(_activeEmail, currentProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getBlockedChannels(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val activeProfileAllowedChannels: StateFlow<List<AllowedChannel>> = combine(_activeEmail, currentProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getAllowedChannels(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val activeProfileApprovedVideos: StateFlow<List<KidVideo>> = combine(_activeEmail, currentProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getApprovedVideos(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // --- Favorites, Playlists, History ---
     val favoritesList = MutableStateFlow<List<Favorite>>(emptyList())
@@ -118,9 +177,12 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Direct Premium YouTube Curator State & Custom Approved list ---
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-    val customApprovedVideos: StateFlow<List<KidVideo>> = _activeEmail
-        .flatMapLatest { email -> repository.getApprovedVideos(email) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    val customApprovedVideos: StateFlow<List<KidVideo>> = combine(_activeEmail, currentConfigProfile) { email, profile ->
+        Pair(email, profile)
+    }.flatMapLatest { (email, profile) ->
+        if (profile != null) repository.getApprovedVideos(profile.id, email)
+        else flowOf(emptyList())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _parentYoutubeSearchQuery = MutableStateFlow("")
     val parentYoutubeSearchQuery: StateFlow<String> = _parentYoutubeSearchQuery.asStateFlow()
@@ -185,11 +247,11 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         // Dynamic re-filtering of searchResults when parameters update in real-time
         viewModelScope.launch {
             combine(
-                blockedWords,
-                blockedChannels,
-                allowedChannels,
-                parentConfig,
-                customApprovedVideos
+                activeProfileBlockedWords,
+                activeProfileBlockedChannels,
+                activeProfileAllowedChannels,
+                currentProfile,
+                activeProfileApprovedVideos
             ) { _, _, _, _, _ ->
                 Unit
             }.debounce(150).collectLatest {
@@ -199,7 +261,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
         // Dynamic fetching of approved + system related videos when a video plays
         viewModelScope.launch {
-            combine(_activeVideo, customApprovedVideos) { active, approvedList ->
+            combine(_activeVideo, activeProfileApprovedVideos) { active, approvedList ->
                 Pair(active, approvedList)
             }.collect { (active, approvedList) ->
                 if (active != null) {
@@ -321,25 +383,25 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     // --- Custom video filters logic ---
     private suspend fun isVideoAllowed(video: KidVideo): Boolean {
-        val config = parentConfig.value
+        val profile = currentProfile.value ?: return false
 
         // 1. Channel blacklist verify
-        val blockedChList = blockedChannels.value.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
+        val blockedChList = activeProfileBlockedChannels.value.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
         val videoChannel = video.channelName.trim().lowercase()
         if (blockedChList.any { blocked -> videoChannel == blocked || videoChannel.contains(blocked) || blocked.contains(videoChannel) }) {
             return false
         }
 
         // 2. Strict Approved-only Mode verify
-        if (config.isStrictChannelMode) {
-            val allowedChList = allowedChannels.value.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
+        if (profile.isStrictChannelMode) {
+            val allowedChList = activeProfileAllowedChannels.value.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
             if (allowedChList.none { allowed -> videoChannel == allowed || videoChannel.contains(allowed) }) {
                 return false
             }
         }
 
         // 3. Blacklist of words verify
-        val blockedWList = blockedWords.value.map { it.word.trim().lowercase() }.filter { it.isNotEmpty() }
+        val blockedWList = activeProfileBlockedWords.value.map { it.word.trim().lowercase() }.filter { it.isNotEmpty() }
         val titleText = video.title.lowercase()
         val descText = video.description.lowercase()
         for (word in blockedWList) {
@@ -401,7 +463,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         val category = _selectedCategory.value
 
         viewModelScope.launch(Dispatchers.IO) {
-            val approvedVideos = customApprovedVideos.value
+            val approvedVideos = activeProfileApprovedVideos.value
 
             // Only source videos from local approved database
             val filtered = approvedVideos.filter { video ->
@@ -491,21 +553,24 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun approveVideoForApp(video: KidVideo) {
+        val profileId = currentConfigProfile.value?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val categorized = autoCategorizeVideo(video)
-            repository.saveApprovedVideo(categorized, _activeEmail.value)
+            repository.saveApprovedVideo(profileId, categorized, _activeEmail.value)
             filterVideos()
         }
     }
 
     fun removeApprovedVideo(videoId: String) {
+        val profileId = currentConfigProfile.value?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.deleteApprovedVideo(videoId, _activeEmail.value)
+            repository.deleteApprovedVideo(videoId, profileId, _activeEmail.value)
             filterVideos()
         }
     }
 
     fun importSampleVideos() {
+        val profileId = currentConfigProfile.value?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
             val email = _activeEmail.value
             val samples = listOf(
@@ -555,7 +620,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
                     description = "Peppa, George e seus amiguinhos vão ao planetário aprender sobre as estrelas e a lua."
                 )
             )
-            samples.forEach { repository.saveApprovedVideo(it, email) }
+            samples.forEach { repository.saveApprovedVideo(profileId, it, email) }
             filterVideos()
         }
     }
@@ -581,7 +646,9 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
                 // Increment spent seconds only if player screen is active
                 if (_currentScreen.value == LeaoScreen.Player) {
                     _screenTimeSpentSeconds.value += 1
-                    val limitSecs = parentConfig.value.screenTimeLimitMinutes * 60
+                    val profile = _currentProfile.value
+                    val limitMinutes = profile?.screenTimeLimitMinutes ?: 60
+                    val limitSecs = limitMinutes * 60
                     if (_screenTimeSpentSeconds.value >= limitSecs) {
                         // Limit matched! Switch to Warning Screen
                         _currentScreen.value = LeaoScreen.LimitsExceeded
@@ -599,8 +666,9 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     // --- Database CRUD wrappers for parent settings panel ---
 
     fun addBlockedWord(word: String) {
+        val profileId = currentConfigProfile.value?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addBlockedWord(word, _activeEmail.value)
+            repository.addBlockedWord(profileId, word, _activeEmail.value)
         }
     }
 
@@ -611,8 +679,9 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addBlockedChannel(channel: String) {
+        val profileId = currentConfigProfile.value?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addBlockedChannel(channel, _activeEmail.value)
+            repository.addBlockedChannel(profileId, channel, _activeEmail.value)
         }
     }
 
@@ -623,8 +692,9 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun addAllowedChannel(channel: String) {
+        val profileId = currentConfigProfile.value?.id ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addAllowedChannel(channel, _activeEmail.value)
+            repository.addAllowedChannel(profileId, channel, _activeEmail.value)
         }
     }
 
@@ -635,23 +705,23 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun updateScreenTimeTimer(minutes: Int) {
+        val profile = currentConfigProfile.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val curr = parentConfig.value
-            repository.saveConfig(curr.copy(screenTimeLimitMinutes = minutes))
+            repository.updateProfile(profile.copy(screenTimeLimitMinutes = minutes))
         }
     }
 
     fun changeStrictChannelMode(enabled: Boolean) {
+        val profile = currentConfigProfile.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val curr = parentConfig.value
-            repository.saveConfig(curr.copy(isStrictChannelMode = enabled))
+            repository.updateProfile(profile.copy(isStrictChannelMode = enabled))
         }
     }
 
     fun changeSmartCuratorMode(enabled: Boolean) {
+        val profile = currentConfigProfile.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            val curr = parentConfig.value
-            repository.saveConfig(curr.copy(isSmartCuratorMode = enabled))
+            repository.updateProfile(profile.copy(isSmartCuratorMode = enabled))
         }
     }
 
@@ -751,12 +821,16 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun updateChildProfile(id: Long, name: String, isBoy: Boolean, avatarUrl: String) {
         viewModelScope.launch(Dispatchers.IO) {
+            val existing = repository.getProfile(id)
             val updated = ChildProfile(
                 id = id,
                 name = name,
                 isBoy = isBoy,
                 avatarUrl = avatarUrl,
-                parentEmail = _activeEmail.value
+                parentEmail = _activeEmail.value,
+                screenTimeLimitMinutes = existing?.screenTimeLimitMinutes ?: 60,
+                isStrictChannelMode = existing?.isStrictChannelMode ?: false,
+                isSmartCuratorMode = existing?.isSmartCuratorMode ?: false
             )
             repository.updateProfile(updated)
             // If it's the currently selected child, refresh the active profile state

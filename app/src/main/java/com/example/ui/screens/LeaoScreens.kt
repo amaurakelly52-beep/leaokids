@@ -1127,7 +1127,7 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
 
                         SquishyButton(
                             onClick = {
-                                val firstVideo = viewModel.customApprovedVideos.value.firstOrNull() ?: viewModel.presetVideos.firstOrNull()
+                                val firstVideo = viewModel.activeProfileApprovedVideos.value.firstOrNull() ?: viewModel.presetVideos.firstOrNull()
                                 if (firstVideo != null) {
                                     viewModel.selectVideoAndNavigate(firstVideo)
                                 }
@@ -1803,7 +1803,7 @@ fun RecommendedVideoVerticalCard(
 fun VideoPlayerScreen(viewModel: LeaoViewModel) {
     val activeVideo by viewModel.activeVideo.collectAsStateWithLifecycle()
     val spentSeconds by viewModel.screenTimeSpentSeconds.collectAsStateWithLifecycle()
-    val limitMinutes by viewModel.parentConfig.map { it.screenTimeLimitMinutes }.collectAsStateWithLifecycle(60)
+    val limitMinutes by viewModel.currentProfile.map { it?.screenTimeLimitMinutes ?: 60 }.collectAsStateWithLifecycle(60)
     val recommendations by viewModel.recommendedVideos.collectAsStateWithLifecycle()
 
     var isFullScreen by remember { mutableStateOf(false) }
@@ -2271,6 +2271,7 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
     val allowedState by viewModel.allowedChannels.collectAsStateWithLifecycle()
     val searchLogsState by viewModel.blockedSearchAttempts.collectAsStateWithLifecycle()
     val childProfiles by viewModel.allProfiles.collectAsStateWithLifecycle()
+    val currentConfigProfile by viewModel.currentConfigProfile.collectAsStateWithLifecycle()
 
     var inputWord by remember { mutableStateOf("") }
     var inputChannel by remember { mutableStateOf("") }
@@ -2558,355 +2559,443 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
                         .padding(20.dp)
                 ) {
                     Text(
-                        text = "Controle de Tempo de Tela",
+                        text = "Configuração por Criança",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF251912)
                     )
-
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Selecione o perfil abaixo para aplicar configurações individuais:",
+                        fontSize = 12.sp,
+                        color = Color.Gray
+                    )
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceAround
+                    if (childProfiles.isEmpty()) {
+                        Text(
+                            text = "Nenhum perfil cadastrado. Crie um perfil de criança acima para começar.",
+                            fontSize = 13.sp,
+                            color = Color.Gray
+                        )
+                    } else {
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(childProfiles) { child ->
+                                val isSelected = currentConfigProfile?.id == child.id
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (isSelected) PrimaryOrange else Color(0xFFFFECE3),
+                                            RoundedCornerShape(16.dp)
+                                        )
+                                        .clickable { viewModel.selectConfigProfileId(child.id) }
+                                        .padding(horizontal = 16.dp, vertical = 10.dp)
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        AsyncImage(
+                                            model = child.avatarUrl,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(24.dp).clip(CircleShape)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = child.name,
+                                            color = if (isSelected) Color.White else PrimaryOrange,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (currentConfigProfile != null) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp)
                     ) {
-                        val times = listOf(1, 15, 30, 60, 120)
-                        times.forEach { time ->
-                            val isSel = pConfig.screenTimeLimitMinutes == time
-                            Box(
-                                modifier = Modifier
-                                    .background(
-                                        if (isSel) PrimaryOrange else Color(0xFFFFECE3),
-                                        RoundedCornerShape(10.dp)
+                        Text(
+                            text = "Controle de Tempo de Tela",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912)
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceAround
+                        ) {
+                            val times = listOf(1, 15, 30, 60, 120)
+                            times.forEach { time ->
+                                val isSel = (currentConfigProfile?.screenTimeLimitMinutes ?: 60) == time
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (isSel) PrimaryOrange else Color(0xFFFFECE3),
+                                            RoundedCornerShape(10.dp)
+                                        )
+                                        .clickable { viewModel.updateScreenTimeTimer(time) }
+                                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                                ) {
+                                    Text(
+                                        text = if (time == 1) "1 Min (Teste)" else "${time}m",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSel) Color.White else PrimaryOrange
                                     )
-                                    .clickable { viewModel.updateScreenTimeTimer(time) }
-                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Text(
+                            text = "Modos de Segurança",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912)
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Modo Restrito de Canais", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("Somente canais aprovados serão visíveis no app.", fontSize = 11.sp, color = Color.Gray)
+                            }
+                            Switch(
+                                checked = currentConfigProfile?.isStrictChannelMode ?: false,
+                                onCheckedChange = { viewModel.changeStrictChannelMode(it) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3))
+                            )
+                        }
+
+                        Divider(color = Color(0xFFFFEADF))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Modo Curadoria Inteligente (IA)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Text("Utiliza modelos Google Gemini para filtrar todas as buscas das crianças.", fontSize = 11.sp, color = Color.Gray)
+                            }
+                            Switch(
+                                checked = currentConfigProfile?.isSmartCuratorMode ?: false,
+                                onCheckedChange = { viewModel.changeSmartCuratorMode(it) },
+                                colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3)),
+                                modifier = Modifier.testTag("ai_curator_mode_switch")
+                            )
+                        }
+                    }
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp)
+                    ) {
+                        Text(
+                            text = "Blacklist de Palavras",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = inputWord,
+                                onValueChange = { inputWord = it },
+                                placeholder = { Text("Adicionar palavra...") },
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("add_banned_word_input"),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            IconButton(
+                                onClick = {
+                                    if (inputWord.trim().isNotEmpty()) {
+                                        viewModel.addBlockedWord(inputWord.trim())
+                                        inputWord = ""
+                                    }
+                                },
+                                modifier = Modifier
+                                    .background(PrimaryOrange, CircleShape)
+                                    .testTag("submit_banned_word_button")
                             ) {
-                                Text(
-                                    text = if (time == 1) "1 Min (Teste)" else "${time}m",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSel) Color.White else PrimaryOrange
+                                Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            wordsState.forEach { word ->
+                                AssistChip(
+                                    onClick = { viewModel.removeBlockedWord(word.id) },
+                                    label = { Text(word.word) },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
                                 )
                             }
                         }
                     }
                 }
-            }
 
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(1.dp, RoundedCornerShape(24.dp))
-                        .background(Color.White, RoundedCornerShape(24.dp))
-                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                        .padding(20.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = "Modos de Segurança",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF251912)
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Modo Restrito de Canais", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Somente canais aprovados serão visíveis no app.", fontSize = 11.sp, color = Color.Gray)
-                        }
-                        Switch(
-                            checked = pConfig.isStrictChannelMode,
-                            onCheckedChange = { viewModel.changeStrictChannelMode(it) },
-                            colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3))
-                        )
-                    }
-
-                    Divider(color = Color(0xFFFFEADF))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Modo Curadoria Inteligente (IA)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            Text("Utiliza modelos Google Gemini para filtrar todas as buscas das crianças.", fontSize = 11.sp, color = Color.Gray)
-                        }
-                        Switch(
-                            checked = pConfig.isSmartCuratorMode,
-                            onCheckedChange = { viewModel.changeSmartCuratorMode(it) },
-                            colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3)),
-                            modifier = Modifier.testTag("ai_curator_mode_switch")
-                        )
-                    }
-                }
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(1.dp, RoundedCornerShape(24.dp))
-                        .background(Color.White, RoundedCornerShape(24.dp))
-                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "Blacklist de Palavras",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF251912)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = inputWord,
-                            onValueChange = { inputWord = it },
-                            placeholder = { Text("Adicionar palavra...") },
-                            modifier = Modifier
-                                .weight(1f)
-                                .testTag("add_banned_word_input"),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IconButton(
-                            onClick = {
-                                if (inputWord.trim().isNotEmpty()) {
-                                    viewModel.addBlockedWord(inputWord.trim())
-                                    inputWord = ""
-                                }
-                            },
-                            modifier = Modifier
-                                .background(PrimaryOrange, CircleShape)
-                                .testTag("submit_banned_word_button")
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        wordsState.forEach { word ->
-                            AssistChip(
-                                onClick = { viewModel.removeBlockedWord(word.id) },
-                                label = { Text(word.word) },
-                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(1.dp, RoundedCornerShape(24.dp))
-                        .background(Color.White, RoundedCornerShape(24.dp))
-                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "Canais Bloqueados",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF251912)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = inputChannel,
-                            onValueChange = { inputChannel = it },
-                            placeholder = { Text("Adicionar Canal...") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IconButton(
-                            onClick = {
-                                if (inputChannel.trim().isNotEmpty()) {
-                                    viewModel.addBlockedChannel(inputChannel.trim())
-                                    inputChannel = ""
-                                }
-                            },
-                            modifier = Modifier.background(PrimaryOrange, CircleShape)
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        channelsState.forEach { channel ->
-                            AssistChip(
-                                onClick = { viewModel.removeBlockedChannel(channel.id) },
-                                label = { Text(channel.channelName) },
-                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(1.dp, RoundedCornerShape(24.dp))
-                        .background(Color.White, RoundedCornerShape(24.dp))
-                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                        .padding(20.dp)
-                ) {
-                    Text(
-                        text = "Canais Permitidos (Modo Aprovados)",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF251912)
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedTextField(
-                            value = inputAllowedChannel,
-                            onValueChange = { inputAllowedChannel = it },
-                            placeholder = { Text("Permitir Canal...") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-
-                        Spacer(modifier = Modifier.width(8.dp))
-
-                        IconButton(
-                            onClick = {
-                                if (inputAllowedChannel.trim().isNotEmpty()) {
-                                    viewModel.addAllowedChannel(inputAllowedChannel.trim())
-                                    inputAllowedChannel = ""
-                                }
-                            },
-                            modifier = Modifier.background(PrimaryOrange, CircleShape)
-                        ) {
-                            Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        allowedState.forEach { ch ->
-                            AssistChip(
-                                onClick = { viewModel.removeAllowedChannel(ch.id) },
-                                label = { Text(ch.channelName) },
-                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(1.dp, RoundedCornerShape(24.dp))
-                        .background(Color.White, RoundedCornerShape(24.dp))
-                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                        .padding(20.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp)
                     ) {
                         Text(
-                            text = "Tentativas de Busca Bloqueadas",
-                            fontSize = 16.sp,
+                            text = "Canais Bloqueados",
+                            fontSize = 18.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFF251912)
                         )
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                        if (searchLogsState.isNotEmpty()) {
-                            TextButton(onClick = { viewModel.clearBlockedSearchLogs() }) {
-                                Text("Limpar", color = Color.Red, fontSize = 12.sp)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = inputChannel,
+                                onValueChange = { inputChannel = it },
+                                placeholder = { Text("Adicionar Canal...") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            IconButton(
+                                onClick = {
+                                    if (inputChannel.trim().isNotEmpty()) {
+                                        viewModel.addBlockedChannel(inputChannel.trim())
+                                        inputChannel = ""
+                                    }
+                                },
+                                modifier = Modifier.background(PrimaryOrange, CircleShape)
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            channelsState.forEach { channel ->
+                                AssistChip(
+                                    onClick = { viewModel.removeBlockedChannel(channel.id) },
+                                    label = { Text(channel.channelName) },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                )
                             }
                         }
                     }
+                }
 
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (searchLogsState.isEmpty()) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp)
+                    ) {
                         Text(
-                            "Nenhuma atividade suspeita registrada. As crianças estão seguras! 🎉",
-                            fontSize = 12.sp,
-                            color = Color.Gray,
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier.fillMaxWidth()
+                            text = "Canais Permitidos (Modo Aprovados)",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912)
                         )
-                    } else {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            searchLogsState.take(10).forEach { item ->
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(Color(0xFFFFDAD6), RoundedCornerShape(12.dp))
-                                        .padding(12.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(
-                                            text = "Pesquisa: '${item.query}'",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 13.sp,
-                                            color = Color(0xFF93000a)
-                                        )
-                                        Text(
-                                            text = "Filtrado pelo Leãozinho Inteligente",
-                                            fontSize = 10.sp,
-                                            color = Color.Red.copy(alpha = 0.7f)
-                                        )
-                                    }
+                        Spacer(modifier = Modifier.height(8.dp))
 
-                                    Icon(
-                                        imageVector = Icons.Filled.Warning,
-                                        contentDescription = "Bloqueado",
-                                        tint = Color.Red,
-                                        modifier = Modifier.size(18.dp)
-                                    )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = inputAllowedChannel,
+                                onValueChange = { inputAllowedChannel = it },
+                                placeholder = { Text("Permitir Canal...") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            IconButton(
+                                onClick = {
+                                    if (inputAllowedChannel.trim().isNotEmpty()) {
+                                        viewModel.addAllowedChannel(inputAllowedChannel.trim())
+                                        inputAllowedChannel = ""
+                                    }
+                                },
+                                modifier = Modifier.background(PrimaryOrange, CircleShape)
+                            ) {
+                                Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            allowedState.forEach { ch ->
+                                AssistChip(
+                                    onClick = { viewModel.removeAllowedChannel(ch.id) },
+                                    label = { Text(ch.channelName) },
+                                    trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Tentativas de Busca Bloqueadas",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF251912)
+                            )
+
+                            if (searchLogsState.isNotEmpty()) {
+                                TextButton(onClick = { viewModel.clearBlockedSearchLogs() }) {
+                                    Text("Limpar", color = Color.Red, fontSize = 12.sp)
                                 }
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (searchLogsState.isEmpty()) {
+                            Text(
+                                "Nenhuma atividade suspeita registrada. As crianças estão seguras! 🎉",
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                searchLogsState.take(10).forEach { item ->
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .background(Color(0xFFFFDAD6), RoundedCornerShape(12.dp))
+                                            .padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column {
+                                            Text(
+                                                text = "Pesquisa: '${item.query}'",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 13.sp,
+                                                color = Color(0xFF93000a)
+                                            )
+                                            Text(
+                                                text = "Filtrado pelo Leãozinho Inteligente",
+                                                fontSize = 10.sp,
+                                                color = Color.Red.copy(alpha = 0.7f)
+                                            )
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.Filled.Warning,
+                                            contentDescription = "Bloqueado",
+                                            tint = Color.Red,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(1.dp, RoundedCornerShape(24.dp))
+                            .background(Color.White, RoundedCornerShape(24.dp))
+                            .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text(
+                            text = "Por favor, crie um perfil de criança acima para começar a configurar os controles parentais individuais.",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 }
             }

@@ -19,7 +19,10 @@ data class ChildProfile(
     val isBoy: Boolean, // True for Boy (Cosmic), False for Girl (Magic)
     val avatarUrl: String,
     val creationTime: Long = System.currentTimeMillis(),
-    val parentEmail: String = "visitor"
+    val parentEmail: String = "visitor",
+    val screenTimeLimitMinutes: Int = 60,
+    val isStrictChannelMode: Boolean = false,
+    val isSmartCuratorMode: Boolean = false
 )
 
 @Entity(tableName = "playlists")
@@ -70,6 +73,7 @@ data class History(
 data class BlockedWord(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val word: String,
+    val profileId: Long = 0,
     val parentEmail: String = "visitor"
 )
 
@@ -77,6 +81,7 @@ data class BlockedWord(
 data class BlockedChannel(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val channelName: String,
+    val profileId: Long = 0,
     val parentEmail: String = "visitor"
 )
 
@@ -84,6 +89,7 @@ data class BlockedChannel(
 data class AllowedChannel(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val channelName: String,
+    val profileId: Long = 0,
     val parentEmail: String = "visitor"
 )
 
@@ -100,16 +106,14 @@ data class BlockedSearchAttempt(
 data class ParentConfig(
     @PrimaryKey val connectedEmail: String = "visitor", // Keyed by email
     val pinCode: String = "1234",
-    val screenTimeLimitMinutes: Int = 60,
-    val isStrictChannelMode: Boolean = false, // If true, only allow AllowedChannels list
-    val isSmartCuratorMode: Boolean = false, // If true, filter with smart Gemini AI prompt
     val connectedName: String? = null,
     val connectedPhoto: String? = null
 )
 
-@Entity(tableName = "approved_videos", primaryKeys = ["id", "parentEmail"])
+@Entity(tableName = "approved_videos", primaryKeys = ["id", "profileId", "parentEmail"])
 data class ApprovedVideo(
     val id: String,
+    val profileId: Long = 0,
     val parentEmail: String = "visitor",
     val title: String,
     val channelName: String,
@@ -188,11 +192,11 @@ interface LeaoDao {
     suspend fun clearHistory(profileId: Long, email: String)
 
     // Blocked words
-    @Query("SELECT * FROM blocked_words WHERE parentEmail = :email ORDER BY word ASC")
-    fun getBlockedWordsFlow(email: String): Flow<List<BlockedWord>>
+    @Query("SELECT * FROM blocked_words WHERE profileId = :profileId AND parentEmail = :email ORDER BY word ASC")
+    fun getBlockedWordsFlow(profileId: Long, email: String): Flow<List<BlockedWord>>
 
-    @Query("SELECT * FROM blocked_words WHERE parentEmail = :email")
-    suspend fun getBlockedWordsList(email: String): List<BlockedWord>
+    @Query("SELECT * FROM blocked_words WHERE profileId = :profileId AND parentEmail = :email")
+    suspend fun getBlockedWordsList(profileId: Long, email: String): List<BlockedWord>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addBlockedWord(blockedWord: BlockedWord)
@@ -201,11 +205,11 @@ interface LeaoDao {
     suspend fun deleteBlockedWord(id: Long, email: String)
 
     // Blocked channels
-    @Query("SELECT * FROM blocked_channels WHERE parentEmail = :email ORDER BY channelName ASC")
-    fun getBlockedChannelsFlow(email: String): Flow<List<BlockedChannel>>
+    @Query("SELECT * FROM blocked_channels WHERE profileId = :profileId AND parentEmail = :email ORDER BY channelName ASC")
+    fun getBlockedChannelsFlow(profileId: Long, email: String): Flow<List<BlockedChannel>>
 
-    @Query("SELECT * FROM blocked_channels WHERE parentEmail = :email")
-    suspend fun getBlockedChannelsList(email: String): List<BlockedChannel>
+    @Query("SELECT * FROM blocked_channels WHERE profileId = :profileId AND parentEmail = :email")
+    suspend fun getBlockedChannelsList(profileId: Long, email: String): List<BlockedChannel>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addBlockedChannel(blockedChannel: BlockedChannel)
@@ -214,11 +218,11 @@ interface LeaoDao {
     suspend fun deleteBlockedChannel(id: Long, email: String)
 
     // Allowed channels
-    @Query("SELECT * FROM allowed_channels WHERE parentEmail = :email ORDER BY channelName ASC")
-    fun getAllowedChannelsFlow(email: String): Flow<List<AllowedChannel>>
+    @Query("SELECT * FROM allowed_channels WHERE profileId = :profileId AND parentEmail = :email ORDER BY channelName ASC")
+    fun getAllowedChannelsFlow(profileId: Long, email: String): Flow<List<AllowedChannel>>
 
-    @Query("SELECT * FROM allowed_channels WHERE parentEmail = :email")
-    suspend fun getAllowedChannelsList(email: String): List<AllowedChannel>
+    @Query("SELECT * FROM allowed_channels WHERE profileId = :profileId AND parentEmail = :email")
+    suspend fun getAllowedChannelsList(profileId: Long, email: String): List<AllowedChannel>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun addAllowedChannel(allowedChannel: AllowedChannel)
@@ -250,14 +254,14 @@ interface LeaoDao {
     suspend fun saveParentConfig(config: ParentConfig)
 
     // Approved Videos
-    @Query("SELECT * FROM approved_videos WHERE parentEmail = :email ORDER BY title ASC")
-    fun getAllApprovedVideos(email: String): Flow<List<ApprovedVideo>>
+    @Query("SELECT * FROM approved_videos WHERE profileId = :profileId AND parentEmail = :email ORDER BY title ASC")
+    fun getAllApprovedVideos(profileId: Long, email: String): Flow<List<ApprovedVideo>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertApprovedVideo(video: ApprovedVideo)
 
-    @Query("DELETE FROM approved_videos WHERE id = :id AND parentEmail = :email")
-    suspend fun deleteApprovedVideo(id: String, email: String)
+    @Query("DELETE FROM approved_videos WHERE id = :id AND profileId = :profileId AND parentEmail = :email")
+    suspend fun deleteApprovedVideo(id: String, profileId: Long, email: String)
 
     // Bulk Clear operations for cloud sync
     @Query("DELETE FROM children_profiles WHERE parentEmail = :email")
