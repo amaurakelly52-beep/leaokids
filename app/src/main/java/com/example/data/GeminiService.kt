@@ -282,27 +282,59 @@ object GeminiService {
             val html = response.body?.string() ?: ""
             
             val videoList = mutableListOf<KidVideo>()
-            val pattern = Pattern.compile("\"videoRenderer\":\\{\"videoId\":\"([a-zA-Z0-9_-]{11})\"(.*?)\"title\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}(.*?)\"longBylineText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}")
-            val matcher = pattern.matcher(html)
+            val videoRendererMarker = "\"videoRenderer\":{"
+            var index = 0
             var count = 0
-            while (matcher.find() && count < 8) {
-                val id = matcher.group(1)
-                val title = matcher.group(3)?.replace("\\u0026", "&") ?: ""
-                val channel = matcher.group(5)?.replace("\\u0026", "&") ?: "YouTube"
-                if (id != null && title.isNotEmpty()) {
-                    videoList.add(
-                        KidVideo(
-                            id = id,
-                            title = title,
-                            channelName = channel,
-                            thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg",
-                            durationText = "Vídeo",
-                            category = "YouTube",
-                            description = "Vídeo real do YouTube."
-                        )
-                    )
-                    count++
+            
+            while (count < 8) {
+                index = html.indexOf(videoRendererMarker, index)
+                if (index == -1) break
+                
+                val endLimit = minOf(html.length, index + 3000)
+                val block = html.substring(index, endLimit)
+                
+                val idMatcher = Pattern.compile("\"videoId\":\"([a-zA-Z0-9_-]{11})\"").matcher(block)
+                if (idMatcher.find()) {
+                    val id = idMatcher.group(1)
+                    
+                    val titleMatcher = Pattern.compile("\"title\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}").matcher(block)
+                    if (titleMatcher.find()) {
+                        var title = titleMatcher.group(1) ?: ""
+                        title = title.replace("\\u0026", "&")
+                                     .replace("\\\"", "\"")
+                                     .replace("\\\\", "\\")
+                        
+                        var channel = "YouTube"
+                        val bylineMatcher = Pattern.compile("\"longBylineText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}").matcher(block)
+                        if (bylineMatcher.find()) {
+                            channel = bylineMatcher.group(1) ?: "YouTube"
+                        } else {
+                            val ownerMatcher = Pattern.compile("\"ownerText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}").matcher(block)
+                            if (ownerMatcher.find()) {
+                                channel = ownerMatcher.group(1) ?: "YouTube"
+                            }
+                        }
+                        channel = channel.replace("\\u0026", "&")
+                                         .replace("\\\"", "\"")
+                                         .replace("\\\\", "\\")
+                        
+                        if (id != null && title.isNotEmpty()) {
+                            videoList.add(
+                                KidVideo(
+                                    id = id,
+                                    title = title,
+                                    channelName = channel,
+                                    thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg",
+                                    durationText = "Vídeo",
+                                    category = "YouTube",
+                                    description = "Vídeo real do YouTube."
+                                )
+                            )
+                            count++
+                        }
+                    }
                 }
+                index += videoRendererMarker.length
             }
             videoList
         } catch (e: Exception) {
