@@ -66,11 +66,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.FullscreenListener
-import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
+import android.webkit.WebSettings
 
 // --- Branded Theme Colors ---
 val PrimaryOrange = Color(0xFFFF7A00)
@@ -1676,101 +1672,69 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
     val recommendations by viewModel.recommendedVideos.collectAsStateWithLifecycle()
 
     var isFullScreen by remember { mutableStateOf(false) }
-    var activeFullscreenView by remember { mutableStateOf<android.view.View?>(null) }
     val context = LocalContext.current
 
     val video = activeVideo ?: return
 
-    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
-    var playerInstance by remember { mutableStateOf<YouTubePlayer?>(null) }
-
-    val youtubePlayerView = remember {
-        YouTubePlayerView(context).apply {
-            enableAutomaticInitialization = false
+    val webView = remember {
+        WebView(context).apply {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
-            lifecycleOwner.lifecycle.addObserver(this)
-        }
-    }
-
-    DisposableEffect(youtubePlayerView) {
-        val fullscreenListener = object : FullscreenListener {
-            override fun onEnterFullscreen(fullscreenView: android.view.View, exitFullscreen: () -> Unit) {
-                isFullScreen = true
-                activeFullscreenView = fullscreenView
-                val activity = context as? Activity
-                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                
-                // Real fullscreen - hide system status bars and navigation bars
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    activity?.window?.insetsController?.hide(
-                        android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
-                    )
-                    activity?.window?.insetsController?.systemBarsBehavior = 
-                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                } else {
-                    @Suppress("DEPRECATION")
-                    activity?.window?.decorView?.systemUiVisibility = (
-                        android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
-                        or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                        or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                    )
+            setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
+            webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val url = request?.url?.toString() ?: ""
+                    if (url.contains("youtube.com") || url.contains("doubleclick") || url.contains("googleads")) {
+                        return false
+                    }
+                    return true
                 }
             }
-
-            override fun onExitFullscreen() {
-                isFullScreen = false
-                activeFullscreenView = null
-                val activity = context as? Activity
-                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                
-                // Restore system status bars and navigation bars
-                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
-                    activity?.window?.insetsController?.show(
-                        android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
-                    )
-                } else {
-                    @Suppress("DEPRECATION")
-                    activity?.window?.decorView?.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
-                }
+            webChromeClient = android.webkit.WebChromeClient()
+            settings.apply {
+                javaScriptEnabled = true
+                mediaPlaybackRequiresUserGesture = false
+                domStorageEnabled = true
+                databaseEnabled = true
+                allowContentAccess = true
+                allowFileAccess = true
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
             }
         }
-        youtubePlayerView.addFullscreenListener(fullscreenListener)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(youtubePlayerView)
-            youtubePlayerView.removeFullscreenListener(fullscreenListener)
-            youtubePlayerView.release()
-        }
     }
 
-    LaunchedEffect(youtubePlayerView) {
-        val options = IFramePlayerOptions.Builder()
-            .controls(1)
-            .fullscreen(1)
-            .origin("https://www.youtube.com")
-            .build()
-        youtubePlayerView.initialize(object : AbstractYouTubePlayerListener() {
-            override fun onReady(youTubePlayer: YouTubePlayer) {
-                playerInstance = youTubePlayer
+    LaunchedEffect(video.id) {
+        val headers = mapOf("Referer" to "https://www.youtube.com")
+        webView.loadUrl("https://www.youtube.com/embed/${video.id}?autoplay=1&controls=1&rel=0&modestbranding=1&fs=0", headers)
+    }
+
+    LaunchedEffect(isFullScreen) {
+        val activity = context as? Activity
+        if (isFullScreen) {
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+            
+            // System UI Immersive Fullscreen Mode
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                activity?.window?.insetsController?.hide(
+                    android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
+                )
+                activity?.window?.insetsController?.systemBarsBehavior = 
+                    android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            } else {
+                @Suppress("DEPRECATION")
+                activity?.window?.decorView?.systemUiVisibility = (
+                    android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                    or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                    or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                )
             }
-        }, options)
-    }
-
-    LaunchedEffect(video.id, playerInstance) {
-        val player = playerInstance
-        if (player != null) {
-            player.loadVideo(video.id, 0f)
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            val activity = context as? Activity
+        } else {
             activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             
-            // Restore system bars on exit
+            // Restore System UI Bars
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
                 activity?.window?.insetsController?.show(
                     android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
@@ -1782,24 +1746,37 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
         }
     }
 
-    if (activeFullscreenView != null) {
+    DisposableEffect(Unit) {
+        onDispose {
+            val activity = context as? Activity
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                activity?.window?.insetsController?.show(
+                    android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                activity?.window?.decorView?.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+            }
+            webView.destroy()
+        }
+    }
+
+    if (isFullScreen) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(Color.Black)
         ) {
             AndroidView(
-                factory = { activeFullscreenView!! },
+                factory = { webView },
                 modifier = Modifier.fillMaxSize()
             )
 
             // Floating Custom Fullscreen Overlay Button to exit
             IconButton(
-                onClick = {
-                    val activity = context as? Activity
-                    activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-                    playerInstance?.toggleFullscreen()
-                },
+                onClick = { isFullScreen = false },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(12.dp)
@@ -1869,17 +1846,13 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
                     .background(Color.Black)
             ) {
                 AndroidView(
-                    factory = { youtubePlayerView },
+                    factory = { webView },
                     modifier = Modifier.fillMaxSize()
                 )
 
                 // Floating Custom Fullscreen Overlay Button to enter
                 IconButton(
-                    onClick = {
-                        val activity = context as? Activity
-                        activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                        playerInstance?.toggleFullscreen()
-                    },
+                    onClick = { isFullScreen = true },
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .padding(12.dp)
