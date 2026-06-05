@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
 import com.example.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
