@@ -1733,18 +1733,10 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
                             ViewGroup.LayoutParams.MATCH_PARENT,
                             ViewGroup.LayoutParams.MATCH_PARENT
                         )
+                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                val url = request?.url?.toString() ?: ""
-                                if (url.contains("youtube.com") || 
-                                    url.contains("youtube-nocookie.com") || 
-                                    url.contains("googlevideo.com") || 
-                                    url.contains("ytimg.com") || 
-                                    url.contains("ggpht.com") ||
-                                    url.contains("google.com")) {
-                                    return false
-                                }
-                                return true
+                                return false
                             }
                         }
                         webChromeClient = android.webkit.WebChromeClient()
@@ -2003,7 +1995,13 @@ fun ParentGateScreen(viewModel: LeaoViewModel) {
 
         Row(modifier = Modifier.fillMaxWidth(0.9f)) {
             Button(
-                onClick = { viewModel.navigateTo(LeaoScreen.ProfileSelection) },
+                onClick = {
+                    if (viewModel.currentProfile.value != null) {
+                        viewModel.navigateTo(LeaoScreen.ChildHome)
+                    } else {
+                        viewModel.navigateTo(LeaoScreen.ProfileSelection)
+                    }
+                },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
                 modifier = Modifier
                     .weight(1f)
@@ -2081,7 +2079,13 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = { viewModel.navigateTo(LeaoScreen.ProfileSelection) },
+                        onClick = {
+                            if (viewModel.currentProfile.value != null) {
+                                viewModel.navigateTo(LeaoScreen.ChildHome)
+                            } else {
+                                viewModel.navigateTo(LeaoScreen.ProfileSelection)
+                            }
+                        },
                         modifier = Modifier
                             .size(40.dp)
                             .background(Color(0xFFFFEADF), CircleShape)
