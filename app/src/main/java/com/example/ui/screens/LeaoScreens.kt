@@ -1735,13 +1735,24 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
                         )
                         webViewClient = object : WebViewClient() {
                             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                                val url = request?.url?.toString() ?: ""
+                                if (url.contains("youtube.com") || 
+                                    url.contains("youtube-nocookie.com") || 
+                                    url.contains("googlevideo.com") || 
+                                    url.contains("ytimg.com") || 
+                                    url.contains("ggpht.com") ||
+                                    url.contains("google.com")) {
+                                    return false
+                                }
                                 return true
                             }
                         }
+                        webChromeClient = android.webkit.WebChromeClient()
                         settings.apply {
                             javaScriptEnabled = true
                             mediaPlaybackRequiresUserGesture = false
                             domStorageEnabled = true
+                            userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
                         }
                         loadUrl("https://www.youtube.com/embed/${video.id}?autoplay=1&controls=0&rel=0&modestbranding=1&showInfo=0")
                     }
