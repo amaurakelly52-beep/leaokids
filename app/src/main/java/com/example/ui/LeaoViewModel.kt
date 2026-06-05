@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 // --- Screen Navigation enum ---
 enum class LeaoScreen {
     Splash,
+    Login,
     ProfileSelection,
     ChildHome,
     Player,
@@ -210,6 +211,15 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             _activeVideo.value = null
         }
         _currentScreen.value = screen
+    }
+
+    fun onStartClicked() {
+        val email = parentConfig.value.connectedEmail
+        if (email.isNullOrEmpty()) {
+            navigateTo(LeaoScreen.Login)
+        } else {
+            navigateTo(LeaoScreen.ProfileSelection)
+        }
     }
 
     fun selectProfileAndNavigate(profile: ChildProfile) {

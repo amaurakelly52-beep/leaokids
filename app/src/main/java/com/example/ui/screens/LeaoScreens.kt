@@ -72,6 +72,7 @@ val PrimaryOrange = Color(0xFFFF7A00)
 val PrimaryOrangeDark = Color(0xFF994700)
 val SecondaryBlue = Color(0xFF0061a4)
 val SecondaryBlueContainer = Color(0xFF33a0fd)
+val SecondaryBlueDark = Color(0xFF003F6B)
 val LightSurface = Color(0xFFFFF8F5)
 val LightSurfaceDim = Color(0xFFEDD5CA)
 val TertiaryYellow = Color(0xFFFABD00)
@@ -102,6 +103,7 @@ fun LeaoMainContent(viewModel: LeaoViewModel) {
             ) { screen ->
                 when (screen) {
                     LeaoScreen.Splash -> SplashScreen(viewModel)
+                    LeaoScreen.Login -> LoginScreen(viewModel)
                     LeaoScreen.ProfileSelection -> ProfileSelectionScreen(viewModel)
                     LeaoScreen.ChildHome -> ChildHomeScreen(viewModel)
                     LeaoScreen.Player -> VideoPlayerScreen(viewModel)
@@ -259,7 +261,7 @@ fun SplashScreen(viewModel: LeaoViewModel) {
             modifier = Modifier.fillMaxWidth()
         ) {
             SquishyButton(
-                onClick = { viewModel.navigateTo(LeaoScreen.ProfileSelection) },
+                onClick = { viewModel.onStartClicked() },
                 backgroundColor = PrimaryOrange,
                 shadowColor = PrimaryOrangeDark,
                 modifier = Modifier.fillMaxWidth(0.95f),
@@ -296,6 +298,267 @@ fun SplashScreen(viewModel: LeaoViewModel) {
                 )
             }
         }
+    }
+}
+
+// --- 01b. LOGIN/EMAIL LINKING SCREEN ---
+@Composable
+fun LoginScreen(viewModel: LeaoViewModel) {
+    val pConfig by viewModel.parentConfig.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    var emailInput by remember { mutableStateOf("") }
+    var nameInput by remember { mutableStateOf("") }
+    var showError by remember { mutableStateOf(false) }
+
+    val accountChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data = result.data
+            val accountName = data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (accountName != null) {
+                viewModel.connectMockGoogleAccount(accountName, accountName.substringBefore("@"))
+                viewModel.navigateTo(LeaoScreen.ProfileSelection)
+            }
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(
+                Brush.verticalGradient(
+                    colors = listOf(Color(0xFFFFEADF), LightSurface)
+                )
+            )
+            .verticalScroll(rememberScrollState())
+            .padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Mascot and Title
+        Image(
+            painter = painterResource(id = R.drawable.logo),
+            contentDescription = "Leãozinho",
+            modifier = Modifier.size(100.dp),
+            contentScale = ContentScale.Fit
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text(
+            text = "Vincular Conta",
+            fontSize = 28.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = PrimaryOrange,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = "Conecte seu e-mail para salvar perfis, sincronizar em múltiplos aparelhos e vincular o acesso ao YouTube Premium.",
+            fontSize = 14.sp,
+            color = Color(0xFF584235),
+            textAlign = TextAlign.Center,
+            lineHeight = 20.sp,
+            modifier = Modifier.padding(horizontal = 8.dp)
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Device Sync Notice Card
+        Card(
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFECE3)),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Info,
+                    contentDescription = "Info Sync",
+                    tint = PrimaryOrange,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = "Nota: Como o banco de dados é local neste dispositivo, o vínculo de e-mail prepara os dados para sincronização em nuvem e liberação de vídeos premium.",
+                    fontSize = 12.sp,
+                    color = Color(0xFF584235),
+                    lineHeight = 16.sp
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Google Authentication option
+        SquishyButton(
+            onClick = {
+                try {
+                    val intent = AccountManager.newChooseAccountIntent(
+                        null,
+                        null,
+                        arrayOf("com.google"),
+                        true,
+                        null,
+                        null,
+                        null,
+                        null
+                    )
+                    accountChooserLauncher.launch(intent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    // Fallback to mock account
+                    viewModel.connectMockGoogleAccount("premium@youtube.com", "Responsável")
+                    viewModel.navigateTo(LeaoScreen.ProfileSelection)
+                    Toast.makeText(context, "Conta Premium vinculada (Simulador)", Toast.LENGTH_SHORT).show()
+                }
+            },
+            backgroundColor = SecondaryBlue,
+            shadowColor = SecondaryBlueDark,
+            modifier = Modifier.fillMaxWidth(0.95f)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = Color.White)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Entrar com Google",
+                    color = Color.White,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        // Divider
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            modifier = Modifier.fillMaxWidth(0.9f)
+        ) {
+            HorizontalDivider(
+                modifier = Modifier.weight(1f),
+                color = Color(0xFFFFEADF),
+                thickness = 2.dp
+            )
+            Text(
+                text = "OU DIGITE MANUALMENTE",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.Gray,
+                modifier = Modifier.padding(horizontal = 12.dp),
+                letterSpacing = 1.sp
+            )
+            HorizontalDivider(
+                modifier = Modifier.weight(1f),
+                color = Color(0xFFFFEADF),
+                thickness = 2.dp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Manual Input Fields
+        OutlinedTextField(
+            value = emailInput,
+            onValueChange = {
+                emailInput = it
+                showError = false
+            },
+            label = { Text("E-mail do Responsável (YouTube Premium)") },
+            placeholder = { Text("exemplo@email.com") },
+            isError = showError && emailInput.isBlank(),
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(0.95f),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White,
+                focusedIndicatorColor = PrimaryOrange,
+                unfocusedIndicatorColor = Color(0xFFFFDFC8)
+            ),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+            value = nameInput,
+            onValueChange = { nameInput = it },
+            label = { Text("Seu Nome") },
+            placeholder = { Text("Responsável") },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth(0.95f),
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.White,
+                unfocusedContainerColor = Color.White,
+                focusedIndicatorColor = PrimaryOrange,
+                unfocusedIndicatorColor = Color(0xFFFFDFC8)
+            )
+        )
+
+        if (showError) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Por favor, preencha o e-mail para prosseguir.",
+                color = Color(0xFFBA1A1A),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        SquishyButton(
+            onClick = {
+                if (emailInput.isNotBlank() && emailInput.contains("@")) {
+                    viewModel.connectMockGoogleAccount(emailInput.trim(), nameInput.trim().ifBlank { "Responsável" })
+                    viewModel.navigateTo(LeaoScreen.ProfileSelection)
+                } else {
+                    showError = true
+                }
+            },
+            backgroundColor = PrimaryOrange,
+            shadowColor = PrimaryOrangeDark,
+            modifier = Modifier.fillMaxWidth(0.95f)
+        ) {
+            Text(
+                text = "Confirmar e Entrar",
+                color = Color.White,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        TextButton(
+            onClick = {
+                viewModel.navigateTo(LeaoScreen.ProfileSelection)
+            }
+        ) {
+            Text(
+                text = "Pular e entrar como Visitante",
+                color = SecondaryBlue,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
     }
 }
 
