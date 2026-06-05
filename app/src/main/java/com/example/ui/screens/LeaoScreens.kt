@@ -111,6 +111,8 @@ fun SquishyButton(
     backgroundColor: Color = PrimaryOrange,
     shadowColor: Color = PrimaryOrangeDark,
     shape: RoundedCornerShape = RoundedCornerShape(18.dp),
+    verticalPadding: androidx.compose.ui.unit.Dp = 18.dp,
+    horizontalPadding: androidx.compose.ui.unit.Dp = 32.dp,
     testTag: String? = null,
     content: @Composable RowScope.() -> Unit
 ) {
@@ -136,7 +138,8 @@ fun SquishyButton(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = onClick
-            )
+            ),
+        propagateMinConstraints = true
     ) {
         // Bottom Elevation Shadow block
         Box(
@@ -151,7 +154,7 @@ fun SquishyButton(
             modifier = Modifier
                 .offset(y = translationY)
                 .background(backgroundColor, shape)
-                .padding(horizontal = 24.dp, vertical = 14.dp),
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding),
             horizontalArrangement = Arrangement.Center,
             verticalAlignment = Alignment.CenterVertically,
             content = content
@@ -245,7 +248,7 @@ fun SplashScreen(viewModel: LeaoViewModel) {
                 onClick = { viewModel.navigateTo(LeaoScreen.ProfileSelection) },
                 backgroundColor = PrimaryOrange,
                 shadowColor = PrimaryOrangeDark,
-                modifier = Modifier.fillMaxWidth(0.85f),
+                modifier = Modifier.fillMaxWidth(0.95f),
                 testTag = "comecar_button"
             ) {
                 Text(
@@ -289,6 +292,7 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
     var showAddProfileDialog by remember { mutableStateOf(false) }
     var inputProfileName by remember { mutableStateOf("") }
     var selectedBoyOption by remember { mutableStateOf(true) } // default true-boy
+    var selectedAvatarUrl by remember { mutableStateOf(viewModel.availableAvatars.first().first) }
 
     Box(
         modifier = Modifier
@@ -366,17 +370,30 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     profiles.forEach { profile ->
+                        val interactionSource = remember { MutableInteractionSource() }
+                        val isPressed by interactionSource.collectIsPressedAsState()
+                        val scale by animateFloatAsState(
+                            targetValue = if (isPressed) 0.92f else 1.0f,
+                            animationSpec = spring(dampingRatio = 0.5f, stiffness = 500f),
+                            label = "ProfilePressScale"
+                        )
+
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
                             modifier = Modifier
-                                .padding(horizontal = 16.dp)
-                                .clickable { viewModel.selectProfileAndNavigate(profile) }
+                                .padding(horizontal = 20.dp, vertical = 12.dp)
+                                .scale(scale)
+                                .clickable(
+                                    interactionSource = interactionSource,
+                                    indication = null,
+                                    onClick = { viewModel.selectProfileAndNavigate(profile) }
+                                )
                                 .testTag("profile_item_${profile.name.lowercase()}")
                         ) {
                             Box(contentAlignment = Alignment.BottomEnd) {
                                 Box(
                                     modifier = Modifier
-                                        .size(120.dp)
+                                        .size(150.dp)
                                         .background(
                                             if (profile.isBoy) SecondaryBlueContainer else AccentPink,
                                             CircleShape
@@ -398,13 +415,13 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                                     )
                                 }
 
-                                // Theme Indicator Badges
+                                // Theme Indicator Badges (Star / Heart)
                                 Icon(
-                                    imageVector = if (profile.isBoy) Icons.Filled.Star else Icons.Filled.Star,
+                                    imageVector = if (profile.isBoy) Icons.Filled.Star else Icons.Filled.Favorite,
                                     contentDescription = null,
                                     tint = Color.White,
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(38.dp)
                                         .background(
                                             if (profile.isBoy) SecondaryBlue else Color(0xFFFF69B4),
                                             CircleShape
@@ -413,20 +430,22 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                                 )
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
+                            Spacer(modifier = Modifier.height(14.dp))
 
                             Text(
                                 text = profile.name,
-                                fontSize = 22.sp,
-                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.ExtraBold,
                                 color = Color(0xFF251912)
                             )
 
+                            Spacer(modifier = Modifier.height(2.dp))
+
                             Text(
                                 text = if (profile.isBoy) "Astronauta" else "Fadinha",
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Color(0xFF584235).copy(alpha = 0.7f)
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = (if (profile.isBoy) SecondaryBlue else Color(0xFFFF69B4))
                             )
                         }
                     }
@@ -442,7 +461,7 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                 },
                 backgroundColor = SecondaryBlueContainer,
                 shadowColor = SecondaryBlue,
-                modifier = Modifier.fillMaxWidth(0.7f),
+                modifier = Modifier.fillMaxWidth(0.92f),
                 testTag = "add_profile_button"
             ) {
                 Icon(
@@ -466,13 +485,13 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                 onDismissRequest = { showAddProfileDialog = false },
                 title = {
                     Text(
-                        text = "Novo Perfil de Criação",
+                        text = "Criar Novo Perfil",
                         fontWeight = FontWeight.ExtraBold,
                         color = PrimaryOrange
                     )
                 },
                 text = {
-                    Column(modifier = Modifier.padding(8.dp)) {
+                    Column(modifier = Modifier.padding(2.dp)) {
                         OutlinedTextField(
                             value = inputProfileName,
                             onValueChange = { inputProfileName = it },
@@ -488,15 +507,16 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                             )
                         )
 
-                        Spacer(modifier = Modifier.height(16.dp))
+                        Spacer(modifier = Modifier.height(12.dp))
 
                         Text(
                             text = "Tema do Ambiente:",
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF251912)
+                            color = Color(0xFF251912),
+                            fontSize = 14.sp
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -504,7 +524,10 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                         ) {
                             // Boy Button Cosmic Option
                             Button(
-                                onClick = { selectedBoyOption = true },
+                                onClick = { 
+                                    selectedBoyOption = true
+                                    selectedAvatarUrl = viewModel.availableAvatars[0].first
+                                },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (selectedBoyOption) SecondaryBlue else Color(0x1A0061A4),
                                     contentColor = if (selectedBoyOption) Color.White else SecondaryBlue
@@ -512,18 +535,21 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(end = 6.dp)
+                                    .padding(end = 4.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Cosmos (Menino)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("Cosmos (Menino)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                 }
                             }
 
                             // Girl Button Magical Option
                             Button(
-                                onClick = { selectedBoyOption = false },
+                                onClick = { 
+                                    selectedBoyOption = false 
+                                    selectedAvatarUrl = viewModel.availableAvatars[1].first
+                                },
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = if (!selectedBoyOption) Color(0xFFFF69B4) else Color(0x1AFF69B4),
                                     contentColor = if (!selectedBoyOption) Color.White else Color(0xFFFF69B4)
@@ -531,12 +557,55 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                                 shape = RoundedCornerShape(12.dp),
                                 modifier = Modifier
                                     .weight(1f)
-                                    .padding(start = 6.dp)
+                                    .padding(start = 4.dp)
                             ) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Icon(Icons.Filled.Star, contentDescription = null, modifier = Modifier.size(14.dp))
                                     Spacer(modifier = Modifier.width(4.dp))
-                                    Text("Magia (Menina)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    Text("Magia (Menina)", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Text(
+                            text = "Escolha a Imagem do Perfil:",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912),
+                            fontSize = 14.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                        ) {
+                            items(viewModel.availableAvatars) { (url, label) ->
+                                val isSelected = selectedAvatarUrl == url
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .clip(CircleShape)
+                                        .border(
+                                            width = if (isSelected) 3.dp else 1.dp,
+                                            color = if (isSelected) (if (selectedBoyOption) SecondaryBlue else Color(0xFFFF69B4)) else Color.LightGray,
+                                            shape = CircleShape
+                                        )
+                                        .clickable { 
+                                            selectedAvatarUrl = url
+                                            if (url == viewModel.availableAvatars[0].first) selectedBoyOption = true
+                                            if (url == viewModel.availableAvatars[1].first) selectedBoyOption = false
+                                        }
+                                ) {
+                                    AsyncImage(
+                                        model = url,
+                                        contentDescription = label,
+                                        modifier = Modifier.size(46.dp).clip(CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
                                 }
                             }
                         }
@@ -546,7 +615,7 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                     TextButton(
                         onClick = {
                             if (inputProfileName.trim().isNotEmpty()) {
-                                viewModel.createChildProfile(inputProfileName.trim(), selectedBoyOption)
+                                viewModel.createChildProfile(inputProfileName.trim(), selectedBoyOption, selectedAvatarUrl)
                                 showAddProfileDialog = false
                             }
                         },
@@ -1649,12 +1718,18 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
     val channelsState by viewModel.blockedChannels.collectAsStateWithLifecycle()
     val allowedState by viewModel.allowedChannels.collectAsStateWithLifecycle()
     val searchLogsState by viewModel.blockedSearchAttempts.collectAsStateWithLifecycle()
+    val childProfiles by viewModel.allProfiles.collectAsStateWithLifecycle()
 
     var inputWord by remember { mutableStateOf("") }
     var inputChannel by remember { mutableStateOf("") }
     var inputAllowedChannel by remember { mutableStateOf("") }
 
     var showGoogleAuthSheet by remember { mutableStateOf(false) }
+
+    var editingProfile by remember { mutableStateOf<ChildProfile?>(null) }
+    var editNameInput by remember { mutableStateOf("") }
+    var editBoyOption by remember { mutableStateOf(true) }
+    var editAvatarUrl by remember { mutableStateOf("") }
 
     LazyColumn(
         modifier = Modifier
@@ -1755,6 +1830,248 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold
                         )
+                    }
+                }
+            }
+        }
+
+        // --- SEÇÃO 1: GERENCIAR PERFIS DAS CRIANÇAS ---
+        item {
+            Column(
+                modifier = Modifier
+                    .fillParentMaxWidth()
+                    .shadow(1.dp, RoundedCornerShape(24.dp))
+                    .background(Color.White, RoundedCornerShape(24.dp))
+                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                    .padding(20.dp)
+            ) {
+                Text(
+                    text = "Gerenciar Perfis das Crianças",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF251912)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (childProfiles.isEmpty()) {
+                    Text("Nenhum perfil cadastrado.", fontSize = 13.sp, color = Color.Gray)
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        childProfiles.forEach { child ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
+                                    .border(1.dp, Color(0xFFF0F0F0), RoundedCornerShape(16.dp))
+                                    .padding(12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    AsyncImage(
+                                        model = child.avatarUrl,
+                                        contentDescription = "Avatar de ${child.name}",
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .clip(CircleShape)
+                                            .border(1.5.dp, if (child.isBoy) SecondaryBlue else Color(0xFFFF69B4), CircleShape),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(child.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF251912))
+                                        Text(
+                                            text = if (child.isBoy) "Tema: Cosmos (Espaço)" else "Tema: Magia (Fadas)",
+                                            fontSize = 11.sp,
+                                            color = Color.Gray
+                                        )
+                                    }
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    // Editar
+                                    IconButton(
+                                        onClick = {
+                                            editingProfile = child
+                                            editNameInput = child.name
+                                            editBoyOption = child.isBoy
+                                            editAvatarUrl = child.avatarUrl
+                                        },
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(Color(0xFFE3F2FD), CircleShape)
+                                    ) {
+                                        Icon(Icons.Filled.Edit, contentDescription = "Editar Perfil", tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
+                                    }
+
+                                    // Excluir
+                                    IconButton(
+                                        onClick = { viewModel.deleteChildProfile(child.id) },
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .background(Color(0xFFFFEBEE), CircleShape)
+                                    ) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Excluir Perfil", tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // --- SEÇÃO 2: CURADORIA ATIVA DO YOUTUBE PREMIUM ---
+        item {
+            val youtubeSearchQuery by viewModel.parentYoutubeSearchQuery.collectAsStateWithLifecycle()
+            val youtubeSearchResults by viewModel.parentYoutubeSearchResults.collectAsStateWithLifecycle()
+            val customApproved by viewModel.customApprovedVideos.collectAsStateWithLifecycle()
+            var localSearchInput by remember { mutableStateOf(youtubeSearchQuery) }
+
+            Column(
+                modifier = Modifier
+                    .fillParentMaxWidth()
+                    .shadow(1.dp, RoundedCornerShape(24.dp))
+                    .background(Color.White, RoundedCornerShape(24.dp))
+                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                    .padding(20.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Gerenciador YouTube Premium",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912)
+                    )
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "Pesquise e libere vídeos do YouTube Premium para sincronizar diretamente com o aplicativo da criança.",
+                    fontSize = 12.sp,
+                    color = Color.Gray,
+                    lineHeight = 16.sp
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = localSearchInput,
+                        onValueChange = { localSearchInput = it },
+                        placeholder = { Text("Pesquisar vídeos ou canais...") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true,
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = { viewModel.searchYoutubeAsParent(localSearchInput) },
+                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.height(56.dp)
+                    ) {
+                        Text("Buscar", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+
+                if (youtubeSearchResults.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Resultados Encontrados (${youtubeSearchResults.size}):",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color(0xFF251912)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        youtubeSearchResults.forEach { video ->
+                            val isAlreadyApproved = customApproved.any { it.id == video.id }
+
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
+                                    .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(16.dp))
+                                    .padding(8.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.Top
+                                ) {
+                                    // Compact thumbnail
+                                    AsyncImage(
+                                        model = video.thumbnailUrl,
+                                        contentDescription = video.title,
+                                        modifier = Modifier
+                                            .size(80.dp, 60.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        contentScale = ContentScale.Crop
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(video.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF251912), maxLines = 2)
+                                        Text("Canal: ${video.channelName} • ${video.durationText}", fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        // Bloquear Canal
+                                        TextButton(
+                                            onClick = { viewModel.addBlockedChannel(video.channelName) },
+                                            modifier = Modifier.height(28.dp),
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("Bloquear Canal", color = Color(0xFFD32F2F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+
+                                        // Bloquear Termo
+                                        TextButton(
+                                            onClick = { viewModel.addBlockedWord(video.title.split(" ").firstOrNull() ?: video.title) },
+                                            modifier = Modifier.height(28.dp),
+                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("Bloquear Título", color = Color(0xFFD32F2F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    // Liberar/Bloquear no App toggle
+                                    if (isAlreadyApproved) {
+                                        Button(
+                                            onClick = { viewModel.removeApprovedVideo(video.id) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8F5E9)),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.height(32.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("Liberado ✨", color = Color(0xFF2E7D32), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    } else {
+                                        Button(
+                                            onClick = { viewModel.approveVideoForApp(video) },
+                                            colors = ButtonDefaults.buttonColors(containerColor = SecondaryBlue),
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.height(32.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("Liberar no App", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -2162,6 +2479,150 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
                 }
             },
             shape = RoundedCornerShape(24.dp)
+        )
+    }
+
+    // Dialog for editing children profile details
+    if (editingProfile != null) {
+        AlertDialog(
+            onDismissRequest = { editingProfile = null },
+            title = {
+                Text(
+                    text = "Editar Perfil do Pequeno",
+                    fontWeight = FontWeight.ExtraBold,
+                    color = PrimaryOrange
+                )
+            },
+            text = {
+                Column(modifier = Modifier.padding(2.dp)) {
+                    OutlinedTextField(
+                        value = editNameInput,
+                        onValueChange = { editNameInput = it },
+                        label = { Text("Nome da Criança") },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = TextFieldDefaults.colors(
+                            focusedContainerColor = Color.White,
+                            unfocusedContainerColor = Color.White,
+                            focusedIndicatorColor = PrimaryOrange
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Tema do Ambiente:",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912),
+                        fontSize = 14.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Button(
+                            onClick = { 
+                                editBoyOption = true
+                                editAvatarUrl = viewModel.availableAvatars[0].first
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (editBoyOption) SecondaryBlue else Color(0x1A0061A4),
+                                contentColor = if (editBoyOption) Color.White else SecondaryBlue
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).padding(end = 4.dp)
+                        ) {
+                            Text("Cosmos", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+
+                        Button(
+                            onClick = { 
+                                editBoyOption = false 
+                                editAvatarUrl = viewModel.availableAvatars[1].first
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!editBoyOption) Color(0xFFFF69B4) else Color(0x1AFF69B4),
+                                contentColor = if (!editBoyOption) Color.White else Color(0xFFFF69B4)
+                            ),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.weight(1f).padding(start = 4.dp)
+                        ) {
+                            Text("Magia", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Escolha a Imagem do Perfil:",
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912),
+                        fontSize = 14.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                    ) {
+                        items(viewModel.availableAvatars) { (url, label) ->
+                            val isSelected = editAvatarUrl == url
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(CircleShape)
+                                    .border(
+                                        width = if (isSelected) 3.dp else 1.dp,
+                                        color = if (isSelected) (if (editBoyOption) SecondaryBlue else Color(0xFFFF69B4)) else Color.LightGray,
+                                        shape = CircleShape
+                                    )
+                                    .clickable { 
+                                        editAvatarUrl = url
+                                        if (url == viewModel.availableAvatars[0].first) editBoyOption = true
+                                        if (url == viewModel.availableAvatars[1].first) editBoyOption = false
+                                    }
+                            ) {
+                                AsyncImage(
+                                    model = url,
+                                    contentDescription = label,
+                                    modifier = Modifier.size(46.dp).clip(CircleShape),
+                                    contentScale = ContentScale.Crop
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val currentEditing = editingProfile
+                        if (currentEditing != null && editNameInput.trim().isNotEmpty()) {
+                            viewModel.updateChildProfile(
+                                id = currentEditing.id,
+                                name = editNameInput.trim(),
+                                isBoy = editBoyOption,
+                                avatarUrl = editAvatarUrl
+                            )
+                            editingProfile = null
+                        }
+                    }
+                ) {
+                    Text("Atualizar", color = PrimaryOrange, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { editingProfile = null }) {
+                    Text("Cancelar", color = Color.Gray)
+                }
+            },
+            shape = RoundedCornerShape(24.dp),
+            containerColor = LightSurface
         )
     }
 }

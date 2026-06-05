@@ -93,29 +93,56 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     val playlistsList = MutableStateFlow<List<Playlist>>(emptyList())
     val historyList = MutableStateFlow<List<History>>(emptyList())
 
-    val recommendedVideos: StateFlow<List<KidVideo>> = combine(
-        _activeVideo,
+    // --- Direct Premium YouTube Curator State & Custom Approved list ---
+    private val _customApprovedVideos = MutableStateFlow<List<KidVideo>>(emptyList())
+    val customApprovedVideos: StateFlow<List<KidVideo>> = _customApprovedVideos.asStateFlow()
+
+    private val _parentYoutubeSearchQuery = MutableStateFlow("")
+    val parentYoutubeSearchQuery: StateFlow<String> = _parentYoutubeSearchQuery.asStateFlow()
+
+    private val _parentYoutubeSearchResults = MutableStateFlow<List<KidVideo>>(emptyList())
+    val parentYoutubeSearchResults: StateFlow<List<KidVideo>> = _parentYoutubeSearchResults.asStateFlow()
+
+    private data class ParentFilter(
+        val blockedCh: List<BlockedChannel>,
+        val allowedCh: List<AllowedChannel>,
+        val blockedW: List<BlockedWord>,
+        val config: ParentConfig,
+        val customApproved: List<KidVideo>
+    )
+
+    private val parentFilterState: Flow<ParentFilter> = combine(
         blockedChannels,
         allowedChannels,
         blockedWords,
-        parentConfig
-    ) { active, blockedCh, allowedCh, blockedW, config ->
+        parentConfig,
+        _customApprovedVideos
+    ) { blockedCh, allowedCh, blockedW, config, customApproved ->
+        ParentFilter(blockedCh, allowedCh, blockedW, config, customApproved)
+    }
+
+    val recommendedVideos: StateFlow<List<KidVideo>> = combine(
+        _activeVideo,
+        parentFilterState
+    ) { active, filter ->
         val currentActive = active ?: return@combine emptyList()
-        presetVideos.filter { video ->
+        val allSources = (presetVideos + filter.customApproved + repository.onlineYoutubeVideos).distinctBy { it.id }
+        allSources.filter { video ->
             if (video.id == currentActive.id) return@filter false
 
             // 1. Channel blacklist verify
-            val blockedChList = blockedCh.map { it.channelName.lowercase() }
-            if (blockedChList.contains(video.channelName.lowercase())) return@filter false
+            val blockedChList = filter.blockedCh.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
+            val videoChannel = video.channelName.trim().lowercase()
+            if (blockedChList.any { blocked -> videoChannel == blocked || videoChannel.contains(blocked) || blocked.contains(videoChannel) }) return@filter false
 
             // 2. Strict Approved-only Mode verify
-            if (config.isStrictChannelMode) {
-                val allowedChList = allowedCh.map { it.channelName.lowercase() }
-                if (!allowedChList.contains(video.channelName.lowercase())) return@filter false
+            if (filter.config.isStrictChannelMode) {
+                val allowedChList = filter.allowedCh.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
+                if (allowedChList.none { allowed -> videoChannel == allowed || videoChannel.contains(allowed) }) return@filter false
             }
 
             // 3. Blacklist of words verify
-            val blockedWList = blockedW.map { it.word.lowercase() }
+            val blockedWList = filter.blockedW.map { it.word.trim().lowercase() }.filter { it.isNotEmpty() }
             val titleText = video.title.lowercase()
             val descText = video.description.lowercase()
             for (word in blockedWList) {
@@ -139,6 +166,21 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             // Reset query search and categories
             onCategoryChange("Todas")
         }
+        
+        // Dynamic re-filtering of searchResults when blacklist/config/state updates in real-time
+        viewModelScope.launch {
+            combine(
+                blockedWords,
+                blockedChannels,
+                allowedChannels,
+                parentConfig
+            ) { _, _, _, _ ->
+                Unit
+            }.debounce(150).collectLatest {
+                filterVideos()
+            }
+        }
+
         // Start checking total timer
         startGlobalTimer()
     }
@@ -224,21 +266,22 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         val config = parentConfig.value
 
         // 1. Channel blacklist verify
-        val blockedChList = blockedChannels.value.map { it.channelName.lowercase() }
-        if (blockedChList.contains(video.channelName.lowercase())) {
+        val blockedChList = blockedChannels.value.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
+        val videoChannel = video.channelName.trim().lowercase()
+        if (blockedChList.any { blocked -> videoChannel == blocked || videoChannel.contains(blocked) || blocked.contains(videoChannel) }) {
             return false
         }
 
         // 2. Strict Approved-only Mode verify
         if (config.isStrictChannelMode) {
-            val allowedChList = allowedChannels.value.map { it.channelName.lowercase() }
-            if (!allowedChList.contains(video.channelName.lowercase())) {
+            val allowedChList = allowedChannels.value.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
+            if (allowedChList.none { allowed -> videoChannel == allowed || videoChannel.contains(allowed) }) {
                 return false
             }
         }
 
         // 3. Blacklist of words verify
-        val blockedWList = blockedWords.value.map { it.word.lowercase() }
+        val blockedWList = blockedWords.value.map { it.word.trim().lowercase() }.filter { it.isNotEmpty() }
         val titleText = video.title.lowercase()
         val descText = video.description.lowercase()
         for (word in blockedWList) {
@@ -299,7 +342,9 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             // Word and channel filters
-            val filtered = repository.presetVideos.filter { video ->
+            val allSourceVideos = (repository.presetVideos + _customApprovedVideos.value + repository.onlineYoutubeVideos).distinctBy { it.id }
+
+            val filtered = allSourceVideos.filter { video ->
                 val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase())
                 val matchesQuery = (query.isEmpty() || video.title.lowercase().contains(query.lowercase()) ||
                         video.channelName.lowercase().contains(query.lowercase()))
@@ -317,6 +362,42 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         _unsafeSearchResponse.value = null
         _searchQuery.value = ""
         filterVideos()
+    }
+
+    // --- Parent-Centric YouTube Premium Search and Approvals ---
+    fun searchYoutubeAsParent(query: String) {
+        _parentYoutubeSearchQuery.value = query
+        if (query.trim().isEmpty()) {
+            _parentYoutubeSearchResults.value = emptyList()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val matches = repository.onlineYoutubeVideos.filter {
+                it.title.lowercase().contains(query.lowercase()) ||
+                        it.channelName.lowercase().contains(query.lowercase())
+            }
+            _parentYoutubeSearchResults.value = matches
+        }
+    }
+
+    fun approveVideoForApp(video: KidVideo) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val currentList = _customApprovedVideos.value
+            if (!currentList.any { it.id == video.id }) {
+                _customApprovedVideos.value = currentList + video
+            }
+            // Trigger child home filter refresh
+            filterVideos()
+        }
+    }
+
+    fun removeApprovedVideo(videoId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _customApprovedVideos.value = _customApprovedVideos.value.filter { it.id != videoId }
+            // Trigger child home filter refresh
+            filterVideos()
+        }
     }
 
     // --- Favorites Actions ---
@@ -477,16 +558,48 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     // --- New Child Profiles Creation ---
-    fun createChildProfile(name: String, isBoy: Boolean) {
+    val availableAvatars = listOf(
+        "https://lh3.googleusercontent.com/aida-public/AB6AXuCdXv6aunqcY7UKJnaAGtqyXESXavtwtHnAf9EmU1fqyiHEatwzRGybdOE1L1NGKzckVLeqqYKG3elQDIDitkkJYKjnxFhKqI0HKHRbmH2Ccmr_sDUxgk1yQ3kW36S23gj_zhBM8A2chuYSWGFBokQ7AwO93LcMQAasXPJds_srS1MCOLorwaLFOkWyCsZGxN-pAUFjoZ9XMZLfYKGMknOVs22rAwJ0pFdLFcfGfxzLlSNIe57FjYpQw2Ht80sbPe6mXVq0YNjh-Z8" to "Astronauta",
+        "https://lh3.googleusercontent.com/aida-public/AB6AXuC7ugoftgcrSMmMHtclryDr_ufH5WJjO05gxQ6HjaSwEVBbek91fqUH6i0y1n6YGSqoc1CmM7O2kB4d1ogx9vljivVCv1I9MBYj7OchX3B9LnZVIDBHwnKoimbdJcPHEqf8CfZWpiXi_JlhpmLPsWHZTv8ORU4Ym73ZI3dtZC95O-BKdRDSvuQwT2teQRkt5qNyrBZc-NYxdq-Muos4Z9pS7p6lsV7hcq0Uw5OYRjGm1zLn2pRD6JRVTt0I-AqhwoDLQDHhcT3YvL8" to "Fadinha",
+        "https://api.dicebear.com/7.x/bottts/png?seed=Noah&backgroundColor=b6e3f4" to "Robozinho de Estrelas",
+        "https://api.dicebear.com/7.x/adventurer/png?seed=Eloah&backgroundColor=ffd5dc" to "Aventureira Eloáh",
+        "https://api.dicebear.com/7.x/pixel-art/png?seed=cat&backgroundColor=c0afea" to "Gatinho Dinossauro",
+        "https://api.dicebear.com/7.x/adventurer/png?seed=magic&backgroundColor=f4bbf9" to "Estrela de Cristal"
+    )
+
+    fun createChildProfile(name: String, isBoy: Boolean, avatarUrl: String? = null) {
         viewModelScope.launch(Dispatchers.IO) {
-            val avatar = if (isBoy) {
-                // Smile Boy URL avatar
-                "https://lh3.googleusercontent.com/aida-public/AB6AXuCdXv6aunqcY7UKJnaAGtqyXESXavtwtHnAf9EmU1fqyiHEatwzRGybdOE1L1NGKzckVLeqqYKG3elQDIDitkkJYKjnxFhKqI0HKHRbmH2Ccmr_sDUxgk1yQ3kW36S23gj_zhBM8A2chuYSWGFBokQ7AwO93LcMQAasXPJds_srS1MCOLorwaLFOkWyCsZGxN-pAUFjoZ9XMZLfYKGMknOVs22rAwJ0pFdLFcfGfxzLlSNIe57FjYpQw2Ht80sbPe6mXVq0YNjh-Z8"
+            val selectedAvatar = avatarUrl ?: if (isBoy) {
+                availableAvatars[0].first
             } else {
-                // Smile Girl URL avatar
-                "https://lh3.googleusercontent.com/aida-public/AB6AXuC7ugoftgcrSMmMHtclryDr_ufH5WJjO05gxQ6HjaSwEVBbek91fqUH6i0y1n6YGSqoc1CmM7O2kB4d1ogx9vljivVCv1I9MBYj7OchX3B9LnZVIDBHwnKoimbdJcPHEqf8CfZWpiXi_JlhpmLPsWHZTv8ORU4Ym73ZI3dtZC95O-BKdRDSvuQwT2teQRkt5qNyrBZc-NYxdq-Muos4Z9pS7p6lsV7hcq0Uw5OYRjGm1zLn2pRD6JRVTt0I-AqhwoDLQDHhcT3YvL8"
+                availableAvatars[1].first
             }
-            repository.createProfile(name, isBoy, avatar)
+            repository.createProfile(name, isBoy, selectedAvatar)
+        }
+    }
+
+    fun updateChildProfile(id: Long, name: String, isBoy: Boolean, avatarUrl: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updated = ChildProfile(
+                id = id,
+                name = name,
+                isBoy = isBoy,
+                avatarUrl = avatarUrl
+            )
+            repository.updateProfile(updated)
+            // If it's the currently selected child, refresh the active profile state
+            if (_currentProfile.value?.id == id) {
+                _currentProfile.value = updated
+            }
+        }
+    }
+
+    fun deleteChildProfile(id: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.removeProfile(id)
+            if (_currentProfile.value?.id == id) {
+                _currentProfile.value = null
+            }
         }
     }
 
