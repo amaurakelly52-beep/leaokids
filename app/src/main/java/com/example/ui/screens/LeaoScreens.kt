@@ -70,6 +70,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.FullscreenListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 
 // --- Branded Theme Colors ---
 val PrimaryOrange = Color(0xFFFF7A00)
@@ -1701,6 +1702,22 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
                 activeFullscreenView = fullscreenView
                 val activity = context as? Activity
                 activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                
+                // Real fullscreen - hide system status bars and navigation bars
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    activity?.window?.insetsController?.hide(
+                        android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
+                    )
+                    activity?.window?.insetsController?.systemBarsBehavior = 
+                        android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                } else {
+                    @Suppress("DEPRECATION")
+                    activity?.window?.decorView?.systemUiVisibility = (
+                        android.view.View.SYSTEM_UI_FLAG_FULLSCREEN
+                        or android.view.View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                        or android.view.View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                    )
+                }
             }
 
             override fun onExitFullscreen() {
@@ -1708,6 +1725,16 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
                 activeFullscreenView = null
                 val activity = context as? Activity
                 activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                
+                // Restore system status bars and navigation bars
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    activity?.window?.insetsController?.show(
+                        android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
+                    )
+                } else {
+                    @Suppress("DEPRECATION")
+                    activity?.window?.decorView?.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+                }
             }
         }
         youtubePlayerView.addFullscreenListener(fullscreenListener)
@@ -1719,11 +1746,16 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
     }
 
     LaunchedEffect(youtubePlayerView) {
+        val options = IFramePlayerOptions.Builder()
+            .controls(1)
+            .fullscreen(1)
+            .origin("https://www.youtube.com")
+            .build()
         youtubePlayerView.initialize(object : AbstractYouTubePlayerListener() {
             override fun onReady(youTubePlayer: YouTubePlayer) {
                 playerInstance = youTubePlayer
             }
-        })
+        }, options)
     }
 
     LaunchedEffect(video.id, playerInstance) {
@@ -1737,6 +1769,16 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
         onDispose {
             val activity = context as? Activity
             activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            
+            // Restore system bars on exit
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                activity?.window?.insetsController?.show(
+                    android.view.WindowInsets.Type.statusBars() or android.view.WindowInsets.Type.navigationBars()
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                activity?.window?.decorView?.systemUiVisibility = android.view.View.SYSTEM_UI_FLAG_VISIBLE
+            }
         }
     }
 
