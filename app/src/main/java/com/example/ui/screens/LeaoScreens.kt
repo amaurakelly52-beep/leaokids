@@ -66,6 +66,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.FullscreenListener
 
 // --- Branded Theme Colors ---
 val PrimaryOrange = Color(0xFFFF7A00)
@@ -1670,223 +1674,319 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
     val limitMinutes by viewModel.parentConfig.map { it.screenTimeLimitMinutes }.collectAsStateWithLifecycle(60)
     val recommendations by viewModel.recommendedVideos.collectAsStateWithLifecycle()
 
+    var isFullScreen by remember { mutableStateOf(false) }
+    var activeFullscreenView by remember { mutableStateOf<android.view.View?>(null) }
+    val context = LocalContext.current
+
     val video = activeVideo ?: return
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(LightSurface)
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(
-                onClick = { viewModel.navigateTo(LeaoScreen.ChildHome) },
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(Color(0xFFFFEADF), CircleShape)
-                    .testTag("back_to_home_button")
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ArrowBack,
-                    contentDescription = "Voltar",
-                    tint = PrimaryOrange
-                )
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    var playerInstance by remember { mutableStateOf<YouTubePlayer?>(null) }
+
+    val youtubePlayerView = remember {
+        YouTubePlayerView(context).apply {
+            enableAutomaticInitialization = false
+            layoutParams = ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.MATCH_PARENT
+            )
+            lifecycleOwner.lifecycle.addObserver(this)
+        }
+    }
+
+    DisposableEffect(youtubePlayerView) {
+        val fullscreenListener = object : FullscreenListener {
+            override fun onEnterFullscreen(fullscreenView: android.view.View, exitFullscreen: () -> Unit) {
+                isFullScreen = true
+                activeFullscreenView = fullscreenView
+                val activity = context as? Activity
+                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
             }
 
-            val totalLimitSeconds = limitMinutes * 60
-            val remainingSecs = maxOf(0, totalLimitSeconds - spentSeconds)
-            val minutesLeft = remainingSecs / 60
-            val secondsLeft = remainingSecs % 60
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .background(Color(0xFF001D36), RoundedCornerShape(16.dp))
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-            ) {
-                Icon(Icons.Filled.Star, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = String.format("%02d:%02d", minutesLeft, secondsLeft),
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp
-                )
+            override fun onExitFullscreen() {
+                isFullScreen = false
+                activeFullscreenView = null
+                val activity = context as? Activity
+                activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
         }
+        youtubePlayerView.addFullscreenListener(fullscreenListener)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(youtubePlayerView)
+            youtubePlayerView.removeFullscreenListener(fullscreenListener)
+            youtubePlayerView.release()
+        }
+    }
 
+    LaunchedEffect(youtubePlayerView) {
+        youtubePlayerView.initialize(object : AbstractYouTubePlayerListener() {
+            override fun onReady(youTubePlayer: YouTubePlayer) {
+                playerInstance = youTubePlayer
+            }
+        })
+    }
+
+    LaunchedEffect(video.id, playerInstance) {
+        val player = playerInstance
+        if (player != null) {
+            player.loadVideo(video.id, 0f)
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            val activity = context as? Activity
+            activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    if (activeFullscreenView != null) {
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(240.dp)
+                .fillMaxSize()
                 .background(Color.Black)
         ) {
             AndroidView(
-                factory = { context ->
-                    WebView(context).apply {
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
-                        setLayerType(android.view.View.LAYER_TYPE_HARDWARE, null)
-                        webViewClient = object : WebViewClient() {
-                            override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                                return false
-                            }
-                        }
-                        webChromeClient = android.webkit.WebChromeClient()
-                        settings.apply {
-                            javaScriptEnabled = true
-                            mediaPlaybackRequiresUserGesture = false
-                            domStorageEnabled = true
-                            userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
-                        }
-                        loadUrl("https://www.youtube.com/embed/${video.id}?autoplay=1&controls=0&rel=0&modestbranding=1&showInfo=0", mapOf("Referer" to "https://www.youtube.com"))
-                    }
-                },
+                factory = { activeFullscreenView!! },
                 modifier = Modifier.fillMaxSize()
             )
-        }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .verticalScroll(rememberScrollState())
-                .padding(24.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = video.title,
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.ExtraBold,
-                        color = Color(0xFF251912)
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "Canal: ${video.channelName}",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = SecondaryBlue
-                    )
-                }
-
-                IconButton(
-                    onClick = { viewModel.toggleFavorite(video) },
-                    modifier = Modifier
-                        .size(48.dp)
-                        .background(Color(0xFFFFEADF), CircleShape)
-                ) {
-                    val isFav = viewModel.isFavorite(video.id)
-                    Icon(
-                        imageVector = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Favorito",
-                        tint = if (isFav) Color(0xFFFF007F) else Color.Gray
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Divider(color = Color(0xFFFFEADF))
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Text(
-                text = "Descrição do Vídeo",
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color(0xFF584235)
-            )
-
-            Spacer(modifier = Modifier.height(6.dp))
-
-            Text(
-                text = video.description,
-                fontSize = 14.sp,
-                color = Color(0xFF584235).copy(alpha = 0.8f),
-                lineHeight = 20.sp
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+            // Floating Custom Fullscreen Overlay Button to exit
+            IconButton(
+                onClick = {
+                    val activity = context as? Activity
+                    activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                    playerInstance?.toggleFullscreen()
+                },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .size(44.dp)
+                    .background(Color.Black.copy(alpha = 0.6f), CircleShape)
             ) {
                 Icon(
-                    imageVector = Icons.Filled.Star,
-                    contentDescription = null,
-                    tint = PrimaryOrange,
-                    modifier = Modifier.size(20.dp)
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Próximos Vídeos Recomendados",
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
+                    imageVector = Icons.Filled.FullscreenExit,
+                    contentDescription = "Sair da Tela Cheia",
+                    tint = Color.White
                 )
             }
-
-            Spacer(modifier = Modifier.height(12.dp))
-
-            if (recommendations.isEmpty()) {
-                Text(
-                    text = "Não há outros vídeos recomendados para este perfil no momento.",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(vertical = 8.dp)
-                )
-            } else {
-                LazyRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(180.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(recommendations) { recVideo ->
-                        RecommendedVideoCard(
-                            video = recVideo,
-                            onClick = { viewModel.selectVideoAndNavigate(recVideo) }
-                        )
-                    }
-                }
-            }
-
-            Spacer(modifier = Modifier.height(30.dp))
-
+        }
+    } else {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(LightSurface)
+        ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFEFFFEC), RoundedCornerShape(16.dp))
-                    .padding(14.dp),
-                verticalAlignment = Alignment.CenterVertically
+                    .padding(16.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = null,
-                    tint = Color(0xFF2E7D32)
+                IconButton(
+                    onClick = { viewModel.navigateTo(LeaoScreen.ChildHome) },
+                    modifier = Modifier
+                        .size(44.dp)
+                        .background(Color(0xFFFFEADF), CircleShape)
+                        .testTag("back_to_home_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.ArrowBack,
+                        contentDescription = "Voltar",
+                        tint = PrimaryOrange
+                    )
+                }
+
+                val totalLimitSeconds = limitMinutes * 60
+                val remainingSecs = maxOf(0, totalLimitSeconds - spentSeconds)
+                val minutesLeft = remainingSecs / 60
+                val secondsLeft = remainingSecs % 60
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .background(Color(0xFF001D36), RoundedCornerShape(16.dp))
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
+                    Icon(Icons.Filled.Star, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = String.format("%02d:%02d", minutesLeft, secondsLeft),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(240.dp)
+                    .background(Color.Black)
+            ) {
+                AndroidView(
+                    factory = { youtubePlayerView },
+                    modifier = Modifier.fillMaxSize()
                 )
-                Spacer(modifier = Modifier.width(8.dp))
+
+                // Floating Custom Fullscreen Overlay Button to enter
+                IconButton(
+                    onClick = {
+                        val activity = context as? Activity
+                        activity?.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        playerInstance?.toggleFullscreen()
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(12.dp)
+                        .size(44.dp)
+                        .background(Color.Black.copy(alpha = 0.6f), CircleShape)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Fullscreen,
+                        contentDescription = "Tela Cheia",
+                        tint = Color.White
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(24.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = video.title,
+                            fontSize = 24.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF251912)
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Canal: ${video.channelName}",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = SecondaryBlue
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { viewModel.toggleFavorite(video) },
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(Color(0xFFFFEADF), CircleShape)
+                    ) {
+                        val isFav = viewModel.isFavorite(video.id)
+                        Icon(
+                            imageVector = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = "Favorito",
+                            tint = if (isFav) Color(0xFFFF007F) else Color.Gray
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Divider(color = Color(0xFFFFEADF))
+
+                Spacer(modifier = Modifier.height(16.dp))
+
                 Text(
-                    text = "Aprovado no Filtro Seguro Leão Kids (Sem anúncios externos ou comentários)",
-                    color = Color(0xFF2E7D32),
-                    fontSize = 12.sp,
+                    text = "Descrição do Vídeo",
+                    fontSize = 14.sp,
                     fontWeight = FontWeight.Bold,
-                    lineHeight = 16.sp,
-                    modifier = Modifier.weight(1f)
+                    color = Color(0xFF584235)
                 )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                    text = video.description,
+                    fontSize = 14.sp,
+                    color = Color(0xFF584235).copy(alpha = 0.8f),
+                    lineHeight = 20.sp
+                )
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Star,
+                        contentDescription = null,
+                        tint = PrimaryOrange,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = "Próximos Vídeos Recomendados",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                if (recommendations.isEmpty()) {
+                    Text(
+                        text = "Não há outros vídeos recomendados para este perfil no momento.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        modifier = Modifier.padding(vertical = 8.dp)
+                    )
+                } else {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(180.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        items(recommendations) { recVideo ->
+                            RecommendedVideoCard(
+                                video = recVideo,
+                                onClick = { viewModel.selectVideoAndNavigate(recVideo) }
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(30.dp))
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Color(0xFFEFFFEC), RoundedCornerShape(16.dp))
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF2E7D32)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Aprovado no Filtro Seguro Leão Kids (Sem anúncios externos ou comentários)",
+                        color = Color(0xFF2E7D32),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        lineHeight = 16.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
             }
         }
     }
