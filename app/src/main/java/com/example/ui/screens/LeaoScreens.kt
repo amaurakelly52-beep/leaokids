@@ -58,6 +58,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTube
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.PlayerConstants
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
 import com.example.R
@@ -1112,7 +1113,7 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
 
                         Text(
                             text = if (kidsProfile.isBoy) {
-                                "Vamos decolar no foguete e descobrir planetas e dinossauros incríveis hoje?"
+                                "Vamos decolar no foguete e fazer descobertas científicas incríveis hoje?"
                             } else {
                                 "Pronta para cantar lindas musiquinhas e desenhar estrelas brilhantes?"
                             },
@@ -1276,7 +1277,7 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
             // Category Slider block
             item {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    val categories = listOf("Todas", "Astronomia", "Dinossauros", "Ciências", "Música", "Artes")
+                    val categories = listOf("Todas", "Astronomia", "Ciências", "Música", "Artes")
                     LazyRow(
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1300,7 +1301,6 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
                                     val icon = when (category) {
                                         "Todas" -> Icons.Filled.List
                                         "Astronomia" -> Icons.Filled.Star
-                                        "Dinossauros" -> Icons.Filled.Star
                                         "Ciências" -> Icons.Filled.Star
                                         "Música" -> Icons.Filled.Star
                                         "Artes" -> Icons.Filled.Star
@@ -1727,6 +1727,77 @@ fun RecommendedVideoCard(
     }
 }
 
+@Composable
+fun RecommendedVideoVerticalCard(
+    video: KidVideo,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .testTag("recommended_card_${video.id}"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 120.dp, height = 75.dp)
+                    .clip(RoundedCornerShape(12.dp))
+            ) {
+                AsyncImage(
+                    model = video.thumbnailUrl,
+                    contentDescription = video.title,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(4.dp)
+                        .background(Color.Black.copy(alpha = 0.7f), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = video.durationText,
+                        color = Color.White,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = video.title,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF251912),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = video.channelName,
+                    fontSize = 12.sp,
+                    color = SecondaryBlue,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.Medium
+                )
+            }
+        }
+    }
+}
+
 // --- 04. KID SAFE MOUNTED PLAYER SCREEN ---
 @Composable
 fun VideoPlayerScreen(viewModel: LeaoViewModel) {
@@ -1750,6 +1821,13 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
             initialize(object : AbstractYouTubePlayerListener() {
                 override fun onReady(youTubePlayer: YouTubePlayer) {
                     youTubePlayer.loadVideo(video.id, 0f)
+                }
+
+                override fun onStateChange(youTubePlayer: YouTubePlayer, state: PlayerConstants.PlayerState) {
+                    super.onStateChange(youTubePlayer, state)
+                    if (state == PlayerConstants.PlayerState.ENDED) {
+                        viewModel.playNextVideo()
+                    }
                 }
             }, options)
         }
@@ -1914,140 +1992,138 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
 
             // Details and Recommendations (shown only if not full screen)
             if (!isFullScreen) {
-                Column(
+                LazyColumn(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
-                        .verticalScroll(rememberScrollState())
-                        .padding(24.dp)
+                        .padding(horizontal = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = video.title,
-                                fontSize = 24.sp,
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color(0xFF251912)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "Canal: ${video.channelName}",
-                                fontSize = 14.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = SecondaryBlue
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { viewModel.toggleFavorite(video) },
-                            modifier = Modifier
-                                .size(48.dp)
-                                .background(Color(0xFFFFEADF), CircleShape)
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.Top
                         ) {
-                            val isFav = viewModel.isFavorite(video.id)
-                            Icon(
-                                imageVector = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = "Favorito",
-                                tint = if (isFav) Color(0xFFFF007F) else Color.Gray
-                            )
-                        }
-                    }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = video.title,
+                                    fontSize = 24.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = Color(0xFF251912)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "Canal: ${video.channelName}",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = SecondaryBlue
+                                )
+                            }
 
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    HorizontalDivider(color = Color(0xFFFFEADF))
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Text(
-                        text = "Descrição do Vídeo",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF584235)
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = video.description,
-                        fontSize = 14.sp,
-                        color = Color(0xFF584235).copy(alpha = 0.8f),
-                        lineHeight = 20.sp
-                    )
-
-                    Spacer(modifier = Modifier.height(24.dp))
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Star,
-                            contentDescription = null,
-                            tint = PrimaryOrange,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text(
-                            text = "Próximos Vídeos Recomendados",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF251912)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    if (recommendations.isEmpty()) {
-                        Text(
-                            text = "Não há outros vídeos recomendados para este perfil no momento.",
-                            fontSize = 12.sp,
-                            color = Color.Gray,
-                            modifier = Modifier.padding(vertical = 8.dp)
-                        )
-                    } else {
-                        LazyRow(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(180.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            items(recommendations) { recVideo ->
-                                RecommendedVideoCard(
-                                    video = recVideo,
-                                    onClick = { viewModel.selectVideoAndNavigate(recVideo) }
+                            IconButton(
+                                onClick = { viewModel.toggleFavorite(video) },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(Color(0xFFFFEADF), CircleShape)
+                            ) {
+                                val isFav = viewModel.isFavorite(video.id)
+                                Icon(
+                                    imageVector = if (isFav) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                    contentDescription = "Favorito",
+                                    tint = if (isFav) Color(0xFFFF007F) else Color.Gray
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        HorizontalDivider(color = Color(0xFFFFEADF))
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text(
+                            text = "Descrição do Vídeo",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF584235)
+                        )
+
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Text(
+                            text = video.description,
+                            fontSize = 14.sp,
+                            color = Color(0xFF584235).copy(alpha = 0.8f),
+                            lineHeight = 20.sp
+                        )
+
+                        Spacer(modifier = Modifier.height(24.dp))
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = null,
+                                tint = PrimaryOrange,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Próximos Vídeos Recomendados",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF251912)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(30.dp))
+                    if (recommendations.isEmpty()) {
+                        item {
+                            Text(
+                                text = "Não há outros vídeos recomendados para este perfil no momento.",
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            )
+                        }
+                    } else {
+                        items(recommendations) { recVideo ->
+                            RecommendedVideoVerticalCard(
+                                video = recVideo,
+                                onClick = { viewModel.selectVideoAndNavigate(recVideo) }
+                            )
+                        }
+                    }
 
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(Color(0xFFEFFFEC), RoundedCornerShape(16.dp))
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = Color(0xFF2E7D32)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Aprovado no Filtro Seguro Leão Kids (Sem anúncios externos ou comentários)",
-                            color = Color(0xFF2E7D32),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = 16.sp,
-                            modifier = Modifier.weight(1f)
-                        )
+                    item {
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFEFFFEC), RoundedCornerShape(16.dp))
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF2E7D32)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Aprovado no Filtro Seguro Leão Kids (Sem anúncios externos ou comentários)",
+                                color = Color(0xFF2E7D32),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = 16.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }

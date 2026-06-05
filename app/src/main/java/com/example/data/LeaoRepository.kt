@@ -17,7 +17,71 @@ data class KidVideo(
 class LeaoRepository(private val dao: LeaoDao) {
 
     // --- Curated Preset Children Videos ---
-    val presetVideos = emptyList<KidVideo>()
+    val presetVideos = listOf(
+        KidVideo(
+            id = "wX_347_bY9U",
+            title = "Música dos Planetas Animados",
+            channelName = "Mundo Bita",
+            thumbnailUrl = "https://img.youtube.com/vi/wX_347_bY9U/hqdefault.jpg",
+            durationText = "3:20",
+            category = "Música",
+            description = "Cante e dance com o Bita numa jornada de foguete pelos astros mais brilhantes!"
+        ),
+        KidVideo(
+            id = "k9vL_XmpSqE",
+            title = "Como Funciona o Arco-Íris?",
+            channelName = "Manual do Mundo",
+            thumbnailUrl = "https://img.youtube.com/vi/k9vL_XmpSqE/hqdefault.jpg",
+            durationText = "6:40",
+            category = "Ciências",
+            description = "Iberê explica com experimentos simples como a luz do sol vira cores mágicas na água!"
+        ),
+        KidVideo(
+            id = "vP79aL_KxpM",
+            title = "O Mistério das Estrelas Cadentes",
+            channelName = "Ciência Espacial",
+            thumbnailUrl = "https://img.youtube.com/vi/vP79aL_KxpM/hqdefault.jpg",
+            durationText = "5:45",
+            category = "Astronomia",
+            description = "Descubra o que realmente são as estrelas cadentes que brilham à noite no céu."
+        ),
+        KidVideo(
+            id = "bB3_F9Lp_Kx",
+            title = "Galinha Pintadinha - Noite de São João",
+            channelName = "Galinha Pintadinha",
+            thumbnailUrl = "https://img.youtube.com/vi/bB3_F9Lp_Kx/hqdefault.jpg",
+            durationText = "2:50",
+            category = "Música",
+            description = "As canções e danças mais alegres da galinha mais amada do Brasil!"
+        ),
+        KidVideo(
+            id = "dD8_Xpl_Lka",
+            title = "Peppa Pig - Visita ao Planetário",
+            channelName = "Peppa Pig Português",
+            thumbnailUrl = "https://img.youtube.com/vi/dD8_Xpl_Lka/hqdefault.jpg",
+            durationText = "5:00",
+            category = "Geral",
+            description = "Peppa, George e seus amiguinhos vão ao planetário aprender sobre as estrelas e a lua."
+        ),
+        KidVideo(
+            id = "2pHdf0X9mUY",
+            title = "Como é Feito o Vidro?",
+            channelName = "Manual do Mundo",
+            thumbnailUrl = "https://img.youtube.com/vi/2pHdf0X9mUY/hqdefault.jpg",
+            durationText = "8:15",
+            category = "Ciências",
+            description = "Conheça todo o processo industrial e a ciência por trás da fabricação do vidro!"
+        ),
+        KidVideo(
+            id = "3X1G_v2j13M",
+            title = "Viajar Pelo Safari",
+            channelName = "Mundo Bita",
+            thumbnailUrl = "https://img.youtube.com/vi/3X1G_v2j13M/hqdefault.jpg",
+            durationText = "3:10",
+            category = "Música",
+            description = "Conheça os animais do safari com o Bita nesta canção super divertida!"
+        )
+    )
 
     // --- Safe YouTube Premium simulated global pool ---
     val onlineYoutubeVideos = emptyList<KidVideo>()

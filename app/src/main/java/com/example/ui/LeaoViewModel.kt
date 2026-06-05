@@ -197,15 +197,17 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Dynamic fetching of approved related videos when a video plays
+        // Dynamic fetching of approved + system related videos when a video plays
         viewModelScope.launch {
             combine(_activeVideo, customApprovedVideos) { active, approvedList ->
                 Pair(active, approvedList)
             }.collect { (active, approvedList) ->
                 if (active != null) {
-                    val filtered = approvedList.filter { video ->
+                    val systemPool = repository.presetVideos
+                    val allPool = (approvedList + systemPool).distinctBy { it.id }
+                    val filtered = allPool.filter { video ->
                         video.id != active.id && isVideoAllowed(video)
-                    }
+                    }.shuffled()
                     _recommendedVideos.value = filtered
                 } else {
                     _recommendedVideos.value = emptyList()
@@ -264,6 +266,13 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.Main) {
                 navigateTo(LeaoScreen.Player)
             }
+        }
+    }
+
+    fun playNextVideo() {
+        val nextVideo = _recommendedVideos.value.firstOrNull()
+        if (nextVideo != null) {
+            selectVideoAndNavigate(nextVideo)
         }
     }
 
@@ -442,7 +451,6 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         
         val currentCat = video.category.trim()
         if (currentCat.equals("Astronomia", ignoreCase = true) ||
-            currentCat.equals("Dinossauros", ignoreCase = true) ||
             currentCat.equals("Ciências", ignoreCase = true) ||
             currentCat.equals("Música", ignoreCase = true) ||
             currentCat.equals("Artes", ignoreCase = true)) {
@@ -455,10 +463,10 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             return video.copy(category = "Astronomia")
         }
 
-        // Dinossauros keywords
+        // Dinossauros keywords -> Ciências
         val dinoKeywords = listOf("dinossauro", "dino", "t-rex", "fóssil", "triceratops", "jurass")
         if (dinoKeywords.any { titleLower.contains(it) || descLower.contains(it) }) {
-            return video.copy(category = "Dinossauros")
+            return video.copy(category = "Ciências")
         }
 
         // Ciências keywords
@@ -726,7 +734,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         "https://lh3.googleusercontent.com/aida-public/AB6AXuC7ugoftgcrSMmMHtclryDr_ufH5WJjO05gxQ6HjaSwEVBbek91fqUH6i0y1n6YGSqoc1CmM7O2kB4d1ogx9vljivVCv1I9MBYj7OchX3B9LnZVIDBHwnKoimbdJcPHEqf8CfZWpiXi_JlhpmLPsWHZTv8ORU4Ym73ZI3dtZC95O-BKdRDSvuQwT2teQRkt5qNyrBZc-NYxdq-Muos4Z9pS7p6lsV7hcq0Uw5OYRjGm1zLn2pRD6JRVTt0I-AqhwoDLQDHhcT3YvL8" to "Fadinha",
         "https://api.dicebear.com/7.x/bottts/png?seed=Noah&backgroundColor=b6e3f4" to "Robozinho de Estrelas",
         "https://api.dicebear.com/7.x/adventurer/png?seed=Eloah&backgroundColor=ffd5dc" to "Aventureira Eloáh",
-        "https://api.dicebear.com/7.x/pixel-art/png?seed=cat&backgroundColor=c0afea" to "Gatinho Dinossauro",
+        "https://api.dicebear.com/7.x/pixel-art/png?seed=cat&backgroundColor=c0afea" to "Gatinho Cientista",
         "https://api.dicebear.com/7.x/adventurer/png?seed=magic&backgroundColor=f4bbf9" to "Estrela de Cristal"
     )
 
