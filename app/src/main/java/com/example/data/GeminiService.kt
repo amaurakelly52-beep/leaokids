@@ -1,6 +1,6 @@
 package com.example.data
 
-import com.example.BuildConfig
+
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
@@ -97,6 +97,16 @@ interface GeminiApi {
 // --- Direct Net Service Wrapper ---
 
 object GeminiService {
+    fun getGeminiApiKey(): String {
+        return try {
+            val clazz = Class.forName("com.example.BuildConfig")
+            val field = clazz.getField("GEMINI_API_KEY")
+            field.get(null) as? String ?: "MY_GEMINI_API_KEY"
+        } catch (e: Exception) {
+            "MY_GEMINI_API_KEY"
+        }
+    }
+
     private val moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())
         .build()
@@ -122,7 +132,7 @@ object GeminiService {
      * Audit search terms or videos using Gemini model for smart parental filter.
      */
     suspend fun auditContent(input: String): ModerationResult = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = getGeminiApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             // Local fallback filter if API Key is not configured yet
             return@withContext evaluateLocally(input)
@@ -198,7 +208,7 @@ object GeminiService {
      * Search YouTube videos via Gemini AI.
      */
     suspend fun searchYoutubeViaAI(query: String): List<KidVideo> = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = getGeminiApiKey()
         if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
             return@withContext emptyList()
         }
@@ -305,7 +315,7 @@ object GeminiService {
      * Gets title, channel and description for a specific video ID using Gemini AI curation.
      */
     suspend fun getVideoDetailsViaAI(videoId: String, pageTitle: String): KidVideo = withContext(Dispatchers.IO) {
-        val apiKey = BuildConfig.GEMINI_API_KEY
+        val apiKey = getGeminiApiKey()
         val cleanTitle = pageTitle.replace(" - YouTube", "").replace(" - YouTube Mobile", "").trim()
         
         val defaultVideo = KidVideo(

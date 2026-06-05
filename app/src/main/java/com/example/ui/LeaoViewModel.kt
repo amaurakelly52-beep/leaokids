@@ -5,7 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.example.BuildConfig
+
 import com.example.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -467,7 +467,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             var realResults = emptyList<KidVideo>()
-            val apiKey = BuildConfig.GEMINI_API_KEY
+            val apiKey = GeminiService.getGeminiApiKey()
             if (apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY") {
                 realResults = GeminiService.searchYoutubeViaAI(query)
             }
