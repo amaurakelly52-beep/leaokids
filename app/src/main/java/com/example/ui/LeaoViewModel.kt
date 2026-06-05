@@ -35,6 +35,16 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     val presetVideos = repository.presetVideos
 
+    // --- Active User Email ---
+    private val _activeEmail = MutableStateFlow("visitor")
+    val activeEmail: StateFlow<String> = _activeEmail.asStateFlow()
+
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
+    private val _parentGateSourceScreen = MutableStateFlow(LeaoScreen.ProfileSelection)
+    val parentGateSourceScreen: StateFlow<LeaoScreen> = _parentGateSourceScreen.asStateFlow()
+
     // --- Navigation & Flow State ---
     private val _currentScreen = MutableStateFlow(LeaoScreen.Splash)
     val currentScreen: StateFlow<LeaoScreen> = _currentScreen.asStateFlow()
@@ -70,33 +80,46 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     private val _unsafeSearchResponse = MutableStateFlow<ModerationResult?>(null)
     val unsafeSearchResponse: StateFlow<ModerationResult?> = _unsafeSearchResponse.asStateFlow()
 
-    // --- Room Data Lists mapped to states ---
-    val allProfiles: StateFlow<List<ChildProfile>> = repository.profiles
+    // --- Room Data Lists mapped to states reactively based on activeEmail ---
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val allProfiles: StateFlow<List<ChildProfile>> = _activeEmail
+        .flatMapLatest { email -> repository.getProfiles(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val blockedWords: StateFlow<List<BlockedWord>> = repository.blockedWords
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val blockedWords: StateFlow<List<BlockedWord>> = _activeEmail
+        .flatMapLatest { email -> repository.getBlockedWords(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val blockedChannels: StateFlow<List<BlockedChannel>> = repository.blockedChannels
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val blockedChannels: StateFlow<List<BlockedChannel>> = _activeEmail
+        .flatMapLatest { email -> repository.getBlockedChannels(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allowedChannels: StateFlow<List<AllowedChannel>> = repository.allowedChannels
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val allowedChannels: StateFlow<List<AllowedChannel>> = _activeEmail
+        .flatMapLatest { email -> repository.getAllowedChannels(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val blockedSearchAttempts: StateFlow<List<BlockedSearchAttempt>> = repository.blockedSearchAttempts
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val blockedSearchAttempts: StateFlow<List<BlockedSearchAttempt>> = _activeEmail
+        .flatMapLatest { email -> repository.getBlockedSearchAttempts(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val parentConfig: StateFlow<ParentConfig> = repository.parentConfig
-        .map { it ?: ParentConfig() }
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val parentConfig: StateFlow<ParentConfig> = _activeEmail
+        .flatMapLatest { email -> repository.getParentConfig(email).map { it ?: ParentConfig(connectedEmail = email) } }
         .stateIn(viewModelScope, SharingStarted.Eagerly, ParentConfig())
 
-    // --- Dynamics Child lists: Favorites, Playlists, History ---
+    // --- Favorites, Playlists, History ---
     val favoritesList = MutableStateFlow<List<Favorite>>(emptyList())
     val playlistsList = MutableStateFlow<List<Playlist>>(emptyList())
     val historyList = MutableStateFlow<List<History>>(emptyList())
 
     // --- Direct Premium YouTube Curator State & Custom Approved list ---
-    val customApprovedVideos: StateFlow<List<KidVideo>> = repository.getApprovedVideos()
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    val customApprovedVideos: StateFlow<List<KidVideo>> = _activeEmail
+        .flatMapLatest { email -> repository.getApprovedVideos(email) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _parentYoutubeSearchQuery = MutableStateFlow("")
@@ -105,7 +128,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     private val _parentYoutubeSearchResults = MutableStateFlow<List<KidVideo>>(emptyList())
     val parentYoutubeSearchResults: StateFlow<List<KidVideo>> = _parentYoutubeSearchResults.asStateFlow()
 
-    // Category Loading state and Youtube caching
+    // Category Loading state and Youtube caching (deprecated/mocked to start clean)
     private val _isCategoryLoading = MutableStateFlow(false)
     val isCategoryLoading: StateFlow<Boolean> = _isCategoryLoading.asStateFlow()
 
@@ -142,56 +165,46 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     private var timerJob: Job? = null
 
     init {
-        // Run database automatic initial population
+        // Run database automatic initial population based on active session
         viewModelScope.launch(Dispatchers.IO) {
-            repository.autoPopulateDefaults()
-            // Reset query search and categories
-            onCategoryChange("Todas")
+            val email = repository.getActiveEmail()
+            _activeEmail.value = email
+            repository.autoPopulateDefaults(email)
+            withContext(Dispatchers.Main) {
+                onCategoryChange("Todas")
+            }
         }
 
-        // Listen to category changes and fetch YouTube videos accordingly
+        // Listen to category changes and filter local videos
         viewModelScope.launch {
             _selectedCategory.collectLatest { category ->
                 fetchCategoryVideosIfNeeded(category)
             }
         }
         
-        // Dynamic re-filtering of searchResults when blacklist/config/state updates in real-time
+        // Dynamic re-filtering of searchResults when parameters update in real-time
         viewModelScope.launch {
             combine(
                 blockedWords,
                 blockedChannels,
                 allowedChannels,
-                parentConfig
-            ) { _, _, _, _ ->
+                parentConfig,
+                customApprovedVideos
+            ) { _, _, _, _, _ ->
                 Unit
             }.debounce(150).collectLatest {
                 filterVideos()
             }
         }
 
-        // Dynamic fetching of real YouTube related videos when a video plays
+        // Dynamic fetching of approved related videos when a video plays
         viewModelScope.launch {
-            _activeVideo.collect { active ->
+            combine(_activeVideo, customApprovedVideos) { active, approvedList ->
+                Pair(active, approvedList)
+            }.collect { (active, approvedList) ->
                 if (active != null) {
-                    val query = active.title
-                    val results = GeminiService.searchYoutubePublicly(query)
-                    val filtered = results.filter { video ->
-                        if (video.id == active.id) return@filter false
-                        val filter = parentFilterState.firstOrNull() ?: return@filter true
-                        val blockedChList = filter.blockedCh.map { it.channelName.trim().lowercase() }
-                        val videoChannel = video.channelName.trim().lowercase()
-                        if (blockedChList.any { blocked -> videoChannel == blocked || videoChannel.contains(blocked) || blocked.contains(videoChannel) }) return@filter false
-                        if (filter.config.isStrictChannelMode) {
-                            val allowedChList = filter.allowedCh.map { it.channelName.trim().lowercase() }
-                            if (allowedChList.none { allowed -> videoChannel == allowed || videoChannel.contains(allowed) }) return@filter false
-                        }
-                        val blockedWList = filter.blockedW.map { it.word.trim().lowercase() }
-                        val titleText = video.title.lowercase()
-                        for (word in blockedWList) {
-                            if (titleText.contains(word)) return@filter false
-                        }
-                        true
+                    val filtered = approvedList.filter { video ->
+                        video.id != active.id && isVideoAllowed(video)
                     }
                     _recommendedVideos.value = filtered
                 } else {
@@ -215,7 +228,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onStartClicked() {
         val email = parentConfig.value.connectedEmail
-        if (email.isNullOrEmpty()) {
+        if (email.isNullOrEmpty() || email == "visitor") {
             navigateTo(LeaoScreen.Login)
         } else {
             navigateTo(LeaoScreen.ProfileSelection)
@@ -231,11 +244,11 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun selectVideoAndNavigate(video: KidVideo) {
         val profile = _currentProfile.value ?: return
+        val email = _activeEmail.value
         viewModelScope.launch(Dispatchers.IO) {
-            // Check if video is safe first (against blocked word list or block channel list or allowed channels)
+            // Check if video is safe first
             val isSafe = isVideoAllowed(video)
             if (!isSafe) {
-                // If not safe, block play
                 _unsafeSearchResponse.value = ModerationResult(
                     safe = false,
                     reason = "Este vídeo do canal '${video.channelName}' foi bloqueado devido às configurações de filtro parental.",
@@ -246,7 +259,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             }
 
             _activeVideo.value = video
-            repository.registerWatchHistory(profile.id, video, 0)
+            repository.registerWatchHistory(profile.id, video, 0, email)
             loadProfileRelatedData(profile.id)
             withContext(Dispatchers.Main) {
                 navigateTo(LeaoScreen.Player)
@@ -255,19 +268,23 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun loadProfileRelatedData(profileId: Long) {
+        val email = _activeEmail.value
         viewModelScope.launch(Dispatchers.IO) {
-            repository.getFavorites(profileId).collect { favoritesList.value = it }
+            repository.getFavorites(profileId, email).collect { favoritesList.value = it }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            repository.getPlaylists(profileId).collect { playlistsList.value = it }
+            repository.getPlaylists(profileId, email).collect { playlistsList.value = it }
         }
         viewModelScope.launch(Dispatchers.IO) {
-            repository.getHistory(profileId).collect { historyList.value = it }
+            repository.getHistory(profileId, email).collect { historyList.value = it }
         }
     }
 
     // --- Parental Gate Challenge ---
     fun prepareParentGate(next: LeaoScreen) {
+        if (_currentScreen.value != LeaoScreen.ParentGate) {
+            _parentGateSourceScreen.value = _currentScreen.value
+        }
         firstGateNum.value = (2..9).random()
         secondGateNum.value = (2..9).random()
         gateAnswerInput.value = ""
@@ -287,6 +304,10 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             secondGateNum.value = (2..9).random()
             gateAnswerInput.value = ""
         }
+    }
+
+    fun exitParentSettings() {
+        navigateTo(_parentGateSourceScreen.value)
     }
 
     // --- Custom video filters logic ---
@@ -334,45 +355,14 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun fetchCategoryVideosIfNeeded(category: String) {
-        val currentCache = _categoryVideosCache.value
-        if (currentCache[category].orEmpty().isNotEmpty()) {
-            filterVideos()
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            val query = when (category) {
-                "Todas" -> "desenho educativo infantil completo"
-                "Astronomia" -> "sistema solar para crianças"
-                "Dinossauros" -> "dinossauros para crianças"
-                "Ciências" -> "manual do mundo experiencias simples"
-                "Música" -> "musica infantil bita"
-                "Artes" -> "desenho infantil facil"
-                else -> "desenho educativo infantil"
-            }
-
-            withContext(Dispatchers.Main) {
-                _isCategoryLoading.value = true
-            }
-
-            try {
-                val results = GeminiService.searchYoutubePublicly(query)
-                val filtered = results.filter { isVideoAllowed(it) }.map { it.copy(category = category) }
-                _categoryVideosCache.value = _categoryVideosCache.value + (category to filtered)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                withContext(Dispatchers.Main) {
-                    _isCategoryLoading.value = false
-                }
-                filterVideos()
-            }
-        }
+        // Stop public YouTube category fetching on child's home screen.
+        // It now acts purely as a local category filter.
+        filterVideos()
     }
 
     fun performKidsSearch(query: String) {
         if (query.trim().isEmpty()) {
-            _kidsYoutubeSearchResults.value = emptyList()
+            _searchQuery.value = ""
             filterVideos()
             return
         }
@@ -382,51 +372,18 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             val localModeration = GeminiService.evaluateLocally(query)
             if (!localModeration.safe) {
                 val profile = _currentProfile.value
+                val email = _activeEmail.value
                 if (profile != null) {
-                    repository.logSearchBlock(profile.id, query)
+                    repository.logSearchBlock(profile.id, query, email)
                 }
                 _unsafeSearchResponse.value = localModeration
                 _searchResults.value = emptyList()
                 return@launch
             }
 
-            val config = parentConfig.value
-            if (config.isSmartCuratorMode) {
-                withContext(Dispatchers.Main) {
-                    _isSmartCurating.value = true
-                }
-                val aiModeration = GeminiService.auditContent(query)
-                withContext(Dispatchers.Main) {
-                    _isSmartCurating.value = false
-                }
-
-                if (!aiModeration.safe) {
-                    val profile = _currentProfile.value
-                    if (profile != null) {
-                        repository.logSearchBlock(profile.id, query)
-                    }
-                    _unsafeSearchResponse.value = aiModeration
-                    _searchResults.value = emptyList()
-                    return@launch
-                }
-            }
-
-            withContext(Dispatchers.Main) {
-                _isSmartCurating.value = true
-            }
-            try {
-                val results = GeminiService.searchYoutubePublicly(query)
-                val filtered = results.filter { isVideoAllowed(it) }
-                _kidsYoutubeSearchResults.value = filtered
-                _unsafeSearchResponse.value = null
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                withContext(Dispatchers.Main) {
-                    _isSmartCurating.value = false
-                }
-                filterVideos()
-            }
+            _searchQuery.value = query
+            _unsafeSearchResponse.value = null
+            filterVideos()
         }
     }
 
@@ -436,32 +393,16 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             val approvedVideos = customApprovedVideos.value
-            val categoryVideos = _categoryVideosCache.value[category].orEmpty()
-            val kidsSearchResults = _kidsYoutubeSearchResults.value
 
-            // 1. Determine the source list
-            val sourceVideos = if (query.isNotEmpty() && kidsSearchResults.isNotEmpty()) {
-                (approvedVideos + kidsSearchResults).distinctBy { it.id }
-            } else if (query.isNotEmpty()) {
-                (approvedVideos + categoryVideos + repository.onlineYoutubeVideos).distinctBy { it.id }
-            } else {
-                (approvedVideos + categoryVideos).distinctBy { it.id }
-            }
-
-            // 2. Filter by category, query and parental rules
-            val filtered = sourceVideos.filter { video ->
+            // Only source videos from local approved database
+            val filtered = approvedVideos.filter { video ->
                 val isNotBlocked = isVideoAllowed(video)
                 if (!isNotBlocked) return@filter false
 
-                if (query.isNotEmpty() && kidsSearchResults.isNotEmpty()) {
-                    // Show search results directly (they are already generated for the query)
-                    true
-                } else {
-                    val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase())
-                    val matchesQuery = (query.isEmpty() || video.title.lowercase().contains(query.lowercase()) ||
-                            video.channelName.lowercase().contains(query.lowercase()))
-                    matchesCategory && matchesQuery
-                }
+                val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase())
+                val matchesQuery = (query.isEmpty() || video.title.lowercase().contains(query.lowercase()) ||
+                        video.channelName.lowercase().contains(query.lowercase()))
+                matchesCategory && matchesQuery
             }
 
             _unsafeSearchResponse.value = null
@@ -495,22 +436,70 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    private fun autoCategorizeVideo(video: KidVideo): KidVideo {
+        val titleLower = video.title.lowercase()
+        val descLower = video.description.lowercase()
+        
+        val currentCat = video.category.trim()
+        if (currentCat.equals("Astronomia", ignoreCase = true) ||
+            currentCat.equals("Dinossauros", ignoreCase = true) ||
+            currentCat.equals("Ciências", ignoreCase = true) ||
+            currentCat.equals("Música", ignoreCase = true) ||
+            currentCat.equals("Artes", ignoreCase = true)) {
+            return video
+        }
+
+        // Astronomia keywords
+        val astroKeywords = listOf("sol", "lua", "estrela", "planeta", "galáxia", "universo", "astron", "marte", "foguete", "espacial", "cosmo")
+        if (astroKeywords.any { titleLower.contains(it) || descLower.contains(it) }) {
+            return video.copy(category = "Astronomia")
+        }
+
+        // Dinossauros keywords
+        val dinoKeywords = listOf("dinossauro", "dino", "t-rex", "fóssil", "triceratops", "jurass")
+        if (dinoKeywords.any { titleLower.contains(it) || descLower.contains(it) }) {
+            return video.copy(category = "Dinossauros")
+        }
+
+        // Ciências keywords
+        val cienciaKeywords = listOf("ciência", "experiência", "experimento", "como funciona", "por que", "química", "física", "biologia", "corpo humano", "manual do mundo")
+        if (cienciaKeywords.any { titleLower.contains(it) || descLower.contains(it) }) {
+            return video.copy(category = "Ciências")
+        }
+
+        // Música keywords
+        val musicaKeywords = listOf("música", "canção", "cantar", "cantiga", "bita", "galinha pintadinha", "palavra cantada", "musical", "ritmo", "som", "clipe")
+        if (musicaKeywords.any { titleLower.contains(it) || descLower.contains(it) }) {
+            return video.copy(category = "Música")
+        }
+
+        // Artes keywords
+        val artesKeywords = listOf("arte", "desenhar", "pintar", "colorir", "lápis", "recortar", "dobradura", "origami", "massinha", "craft", "oficina")
+        if (artesKeywords.any { titleLower.contains(it) || descLower.contains(it) }) {
+            return video.copy(category = "Artes")
+        }
+
+        return video.copy(category = "Geral")
+    }
+
     fun approveVideoForApp(video: KidVideo) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.saveApprovedVideo(video)
+            val categorized = autoCategorizeVideo(video)
+            repository.saveApprovedVideo(categorized, _activeEmail.value)
             filterVideos()
         }
     }
 
     fun removeApprovedVideo(videoId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.deleteApprovedVideo(videoId)
+            repository.deleteApprovedVideo(videoId, _activeEmail.value)
             filterVideos()
         }
     }
 
     fun importSampleVideos() {
         viewModelScope.launch(Dispatchers.IO) {
+            val email = _activeEmail.value
             val samples = listOf(
                 KidVideo(
                     id = "wX_347_bY9U",
@@ -558,7 +547,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
                     description = "Peppa, George e seus amiguinhos vão ao planetário aprender sobre as estrelas e a lua."
                 )
             )
-            samples.forEach { repository.saveApprovedVideo(it) }
+            samples.forEach { repository.saveApprovedVideo(it, email) }
             filterVideos()
         }
     }
@@ -567,7 +556,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     fun toggleFavorite(video: KidVideo) {
         val profile = _currentProfile.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.toggleFavorite(profile.id, video)
+            repository.toggleFavorite(profile.id, video, _activeEmail.value)
             loadProfileRelatedData(profile.id)
         }
     }
@@ -603,37 +592,37 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun addBlockedWord(word: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addBlockedWord(word)
+            repository.addBlockedWord(word, _activeEmail.value)
         }
     }
 
     fun removeBlockedWord(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.removeBlockedWord(id)
+            repository.removeBlockedWord(id, _activeEmail.value)
         }
     }
 
     fun addBlockedChannel(channel: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addBlockedChannel(channel)
+            repository.addBlockedChannel(channel, _activeEmail.value)
         }
     }
 
     fun removeBlockedChannel(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.removeBlockedChannel(id)
+            repository.removeBlockedChannel(id, _activeEmail.value)
         }
     }
 
     fun addAllowedChannel(channel: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addAllowedChannel(channel)
+            repository.addAllowedChannel(channel, _activeEmail.value)
         }
     }
 
     fun removeAllowedChannel(id: Long) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.removeAllowedChannel(id)
+            repository.removeAllowedChannel(id, _activeEmail.value)
         }
     }
 
@@ -660,33 +649,43 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
     fun connectMockGoogleAccount(email: String, name: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            val curr = parentConfig.value
-            repository.saveConfig(
-                curr.copy(
-                    connectedEmail = email,
-                    connectedName = name,
-                    connectedPhoto = "https://lh3.googleusercontent.com/aida-public/AB6AXuCQfH04TaTbwky6VSzp-QjQQNjH1OnYtW3dHgW_XaJ9tccO535ioVVJZsc1R2I2-pyAyzT9gPBio_Coc5pB3qVLyECDjpcYcoa2GlxR4ts8_VvLrXiUqc1AvAYFr--KKIpyFpLi1QNajJeqPlUTZ1LsvY9ObdBbZ89-t8yA-Tm4Gcvkc9-95amOAimXO6fMQ0G4iyV0QKVV7xjfmR4_aTQ6CuH7A-bJSclVgYfARR7UxcZLP0L8cg8wii2x4k2T1Le2GAxA34Jcd2w"
-                )
+            _isSyncing.value = true
+            // 1. Pull data from cloud (Supabase) to local DB
+            repository.syncFromCloud(email)
+
+            // 2. Populate defaults for this email if it is a new email
+            repository.autoPopulateDefaults(email)
+            
+            // 3. Fetch the config for this email, copy name and photo
+            val existingConfig = repository.getParentConfigDirect(email) ?: ParentConfig(connectedEmail = email)
+            val updatedConfig = existingConfig.copy(
+                connectedName = name,
+                connectedPhoto = "https://lh3.googleusercontent.com/aida-public/AB6AXuCQfH04TaTbwky6VSzp-QjQQNjH1OnYtW3dHgW_XaJ9tccO535ioVVJZsc1R2I2-pyAyzT9gPBio_Coc5pB3qVLyECDjpcYcoa2GlxR4ts8_VvLrXiUqc1AvAYFr--KKIpyFpLi1QNajJeqPlUTZ1LsvY9ObdBbZ89-t8yA-Tm4Gcvkc9-95amOAimXO6fMQ0G4iyV0QKVV7xjfmR4_aTQ6CuH7A-bJSclVgYfARR7UxcZLP0L8cg8wii2x4k2T1Le2GAxA34Jcd2w"
             )
+            repository.saveConfig(updatedConfig)
+            
+            // 4. Save active session email
+            repository.saveActiveEmail(email)
+            
+            // 5. Update the active email state variable
+            _activeEmail.value = email
+            _isSyncing.value = false
         }
     }
 
     fun disconnectGoogleAccount() {
         viewModelScope.launch(Dispatchers.IO) {
-            val curr = parentConfig.value
-            repository.saveConfig(
-                curr.copy(
-                    connectedEmail = null,
-                    connectedName = null,
-                    connectedPhoto = null
-                )
-            )
+            // Save active session to visitor
+            repository.saveActiveEmail("visitor")
+            
+            // Reset active email state
+            _activeEmail.value = "visitor"
         }
     }
 
     fun clearBlockedSearchLogs() {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.clearBlockedLogs()
+            repository.clearBlockedLogs(_activeEmail.value)
         }
     }
 
@@ -695,28 +694,29 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     fun createNewPlaylist(name: String) {
         val profile = _currentProfile.value ?: return
         viewModelScope.launch(Dispatchers.IO) {
-            repository.createPlaylist(profile.id, name)
+            repository.createPlaylist(profile.id, name, _activeEmail.value)
             loadProfileRelatedData(profile.id)
         }
     }
 
     fun deletePlaylist(playlistId: Long) {
         val profile = _currentProfile.value ?: return
+        val email = _activeEmail.value
         viewModelScope.launch(Dispatchers.IO) {
-            repository.deletePlaylist(playlistId)
+            repository.deletePlaylist(playlistId, email)
             loadProfileRelatedData(profile.id)
         }
     }
 
     fun addVideoToPlaylist(playlistId: Long, video: KidVideo) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.addVideoToPlaylist(playlistId, video)
+            repository.addVideoToPlaylist(playlistId, video, _activeEmail.value)
         }
     }
 
     fun removeVideoFromPlaylist(playlistId: Long, videoId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.removeVideoFromPlaylist(playlistId, videoId)
+            repository.removeVideoFromPlaylist(playlistId, videoId, _activeEmail.value)
         }
     }
 
@@ -737,7 +737,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 availableAvatars[1].first
             }
-            repository.createProfile(name, isBoy, selectedAvatar)
+            repository.createProfile(name, isBoy, selectedAvatar, _activeEmail.value)
         }
     }
 
@@ -747,7 +747,8 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
                 id = id,
                 name = name,
                 isBoy = isBoy,
-                avatarUrl = avatarUrl
+                avatarUrl = avatarUrl,
+                parentEmail = _activeEmail.value
             )
             repository.updateProfile(updated)
             // If it's the currently selected child, refresh the active profile state
@@ -769,7 +770,9 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     fun resetApp() {
         viewModelScope.launch(Dispatchers.IO) {
             database.clearAllTables()
-            repository.autoPopulateDefaults()
+            repository.saveActiveEmail("visitor")
+            _activeEmail.value = "visitor"
+            repository.autoPopulateDefaults("visitor")
             withContext(Dispatchers.Main) {
                 navigateTo(LeaoScreen.Splash)
             }

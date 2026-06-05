@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
 import com.example.R
@@ -306,10 +307,38 @@ fun SplashScreen(viewModel: LeaoViewModel) {
 @Composable
 fun LoginScreen(viewModel: LeaoViewModel) {
     val pConfig by viewModel.parentConfig.collectAsStateWithLifecycle()
+    val isSyncing by viewModel.isSyncing.collectAsStateWithLifecycle()
     val context = LocalContext.current
     var emailInput by remember { mutableStateOf("") }
     var nameInput by remember { mutableStateOf("") }
     var showError by remember { mutableStateOf(false) }
+
+    if (isSyncing) {
+        Dialog(onDismissRequest = {}) {
+            Box(
+                modifier = Modifier
+                    .size(240.dp)
+                    .background(Color.White, shape = RoundedCornerShape(24.dp))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(color = PrimaryOrange, strokeWidth = 4.dp)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "Sincronizando dados com a nuvem...",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912),
+                        textAlign = TextAlign.Center
+                    )
+                }
+            }
+        }
+    }
 
     val accountChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -753,6 +782,37 @@ fun ProfileSelectionScreen(viewModel: LeaoViewModel) {
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Sync status and email indicator
+            val activeEmail by viewModel.activeEmail.collectAsStateWithLifecycle()
+            val isConfigured = remember { com.example.data.SupabaseService.isConfigured() }
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center,
+                modifier = Modifier.padding(bottom = 8.dp)
+            ) {
+                Icon(
+                    imageVector = if (isConfigured) Icons.Filled.CloudQueue else Icons.Filled.CloudOff,
+                    contentDescription = null,
+                    tint = if (isConfigured) SecondaryBlue else Color.Gray,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (activeEmail == "visitor") {
+                        "Modo Visitante (Local)"
+                    } else if (isConfigured) {
+                        "Conectado e Sincronizado: $activeEmail"
+                    } else {
+                        "Conectado Localmente: $activeEmail (Nuvem Offline)"
+                    },
+                    fontSize = 11.sp,
+                    color = Color.Gray,
+                    fontWeight = FontWeight.Medium
                 )
             }
         }
@@ -2110,13 +2170,7 @@ fun ParentGateScreen(viewModel: LeaoViewModel) {
 
         Row(modifier = Modifier.fillMaxWidth(0.9f)) {
             Button(
-                onClick = {
-                    if (viewModel.currentProfile.value != null) {
-                        viewModel.navigateTo(LeaoScreen.ChildHome)
-                    } else {
-                        viewModel.navigateTo(LeaoScreen.ProfileSelection)
-                    }
-                },
+                onClick = { viewModel.exitParentSettings() },
                 colors = ButtonDefaults.buttonColors(containerColor = Color.Gray),
                 modifier = Modifier
                     .weight(1f)
@@ -2194,13 +2248,7 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(
-                        onClick = {
-                            if (viewModel.currentProfile.value != null) {
-                                viewModel.navigateTo(LeaoScreen.ChildHome)
-                            } else {
-                                viewModel.navigateTo(LeaoScreen.ProfileSelection)
-                            }
-                        },
+                        onClick = { viewModel.exitParentSettings() },
                         modifier = Modifier
                             .size(40.dp)
                             .background(Color(0xFFFFEADF), CircleShape)
@@ -2293,6 +2341,23 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
                                 color = Color.Gray,
                                 lineHeight = 16.sp
                             )
+                            val isConfigured = remember { com.example.data.SupabaseService.isConfigured() }
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    imageVector = if (isConfigured) Icons.Filled.CloudQueue else Icons.Filled.CloudOff,
+                                    contentDescription = null,
+                                    tint = if (isConfigured) SecondaryBlue else Color.Gray,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = if (isConfigured) "Nuvem Sincronizada" else "Modo de Armazenamento Local (Offline)",
+                                    fontSize = 11.sp,
+                                    color = if (isConfigured) SecondaryBlue else Color.Gray,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         SquishyButton(
