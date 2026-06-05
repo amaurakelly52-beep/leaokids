@@ -1754,7 +1754,7 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
                             domStorageEnabled = true
                             userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
                         }
-                        loadUrl("https://www.youtube.com/embed/${video.id}?autoplay=1&controls=0&rel=0&modestbranding=1&showInfo=0")
+                        loadUrl("https://www.youtube.com/embed/${video.id}?autoplay=1&controls=0&rel=0&modestbranding=1&showInfo=0", mapOf("Referer" to "https://www.youtube.com"))
                     }
                 },
                 modifier = Modifier.fillMaxSize()
