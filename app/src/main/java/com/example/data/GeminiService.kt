@@ -297,7 +297,7 @@ object GeminiService {
                 if (idMatcher.find()) {
                     val id = idMatcher.group(1)
                     
-                    val titleMatcher = Pattern.compile("\"title\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}").matcher(block)
+                    val titleMatcher = Pattern.compile("\"title\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"").matcher(block)
                     if (titleMatcher.find()) {
                         var title = titleMatcher.group(1) ?: ""
                         title = title.replace("\\u0026", "&")
@@ -305,11 +305,11 @@ object GeminiService {
                                      .replace("\\\\", "\\")
                         
                         var channel = "YouTube"
-                        val bylineMatcher = Pattern.compile("\"longBylineText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}").matcher(block)
+                        val bylineMatcher = Pattern.compile("\"longBylineText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"").matcher(block)
                         if (bylineMatcher.find()) {
                             channel = bylineMatcher.group(1) ?: "YouTube"
                         } else {
-                            val ownerMatcher = Pattern.compile("\"ownerText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}").matcher(block)
+                            val ownerMatcher = Pattern.compile("\"ownerText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"").matcher(block)
                             if (ownerMatcher.find()) {
                                 channel = ownerMatcher.group(1) ?: "YouTube"
                             }

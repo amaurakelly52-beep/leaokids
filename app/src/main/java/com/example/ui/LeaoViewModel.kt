@@ -314,6 +314,7 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     // --- Search & Filter methods ---
     fun onSearchQueryChange(query: String) {
         _searchQuery.value = query
+        _kidsYoutubeSearchResults.value = emptyList()
         filterVideos()
     }
 
@@ -439,12 +440,18 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
 
             // 2. Filter by category, query and parental rules
             val filtered = sourceVideos.filter { video ->
-                val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase() || query.isNotEmpty())
-                val matchesQuery = (query.isEmpty() || video.title.lowercase().contains(query.lowercase()) ||
-                        video.channelName.lowercase().contains(query.lowercase()))
                 val isNotBlocked = isVideoAllowed(video)
+                if (!isNotBlocked) return@filter false
 
-                matchesCategory && matchesQuery && isNotBlocked
+                if (query.isNotEmpty() && kidsSearchResults.isNotEmpty()) {
+                    // Show search results directly (they are already generated for the query)
+                    true
+                } else {
+                    val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase())
+                    val matchesQuery = (query.isEmpty() || video.title.lowercase().contains(query.lowercase()) ||
+                            video.channelName.lowercase().contains(query.lowercase()))
+                    matchesCategory && matchesQuery
+                }
             }
 
             _unsafeSearchResponse.value = null
