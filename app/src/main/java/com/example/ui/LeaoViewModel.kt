@@ -94,14 +94,23 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
     val historyList = MutableStateFlow<List<History>>(emptyList())
 
     // --- Direct Premium YouTube Curator State & Custom Approved list ---
-    private val _customApprovedVideos = MutableStateFlow<List<KidVideo>>(emptyList())
-    val customApprovedVideos: StateFlow<List<KidVideo>> = _customApprovedVideos.asStateFlow()
+    val customApprovedVideos: StateFlow<List<KidVideo>> = repository.getApprovedVideos()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _parentYoutubeSearchQuery = MutableStateFlow("")
     val parentYoutubeSearchQuery: StateFlow<String> = _parentYoutubeSearchQuery.asStateFlow()
 
     private val _parentYoutubeSearchResults = MutableStateFlow<List<KidVideo>>(emptyList())
     val parentYoutubeSearchResults: StateFlow<List<KidVideo>> = _parentYoutubeSearchResults.asStateFlow()
+
+    // Category Loading state and Youtube caching
+    private val _isCategoryLoading = MutableStateFlow(false)
+    val isCategoryLoading: StateFlow<Boolean> = _isCategoryLoading.asStateFlow()
+
+    private val _categoryVideosCache = MutableStateFlow<Map<String, List<KidVideo>>>(emptyMap())
+    val categoryVideosCache: StateFlow<Map<String, List<KidVideo>>> = _categoryVideosCache.asStateFlow()
+
+    private val _kidsYoutubeSearchResults = MutableStateFlow<List<KidVideo>>(emptyList())
 
     private data class ParentFilter(
         val blockedCh: List<BlockedChannel>,
@@ -116,42 +125,13 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         allowedChannels,
         blockedWords,
         parentConfig,
-        _customApprovedVideos
+        customApprovedVideos
     ) { blockedCh, allowedCh, blockedW, config, customApproved ->
         ParentFilter(blockedCh, allowedCh, blockedW, config, customApproved)
     }
 
-    val recommendedVideos: StateFlow<List<KidVideo>> = combine(
-        _activeVideo,
-        parentFilterState
-    ) { active, filter ->
-        val currentActive = active ?: return@combine emptyList()
-        val allSources = (presetVideos + filter.customApproved + repository.onlineYoutubeVideos).distinctBy { it.id }
-        allSources.filter { video ->
-            if (video.id == currentActive.id) return@filter false
-
-            // 1. Channel blacklist verify
-            val blockedChList = filter.blockedCh.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
-            val videoChannel = video.channelName.trim().lowercase()
-            if (blockedChList.any { blocked -> videoChannel == blocked || videoChannel.contains(blocked) || blocked.contains(videoChannel) }) return@filter false
-
-            // 2. Strict Approved-only Mode verify
-            if (filter.config.isStrictChannelMode) {
-                val allowedChList = filter.allowedCh.map { it.channelName.trim().lowercase() }.filter { it.isNotEmpty() }
-                if (allowedChList.none { allowed -> videoChannel == allowed || videoChannel.contains(allowed) }) return@filter false
-            }
-
-            // 3. Blacklist of words verify
-            val blockedWList = filter.blockedW.map { it.word.trim().lowercase() }.filter { it.isNotEmpty() }
-            val titleText = video.title.lowercase()
-            val descText = video.description.lowercase()
-            for (word in blockedWList) {
-                if (titleText.contains(word) || descText.contains(word)) return@filter false
-            }
-
-            true
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    private val _recommendedVideos = MutableStateFlow<List<KidVideo>>(emptyList())
+    val recommendedVideos: StateFlow<List<KidVideo>> = _recommendedVideos.asStateFlow()
 
     // --- Screen Timer State ---
     private val _screenTimeSpentSeconds = MutableStateFlow(0)
@@ -166,6 +146,13 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             // Reset query search and categories
             onCategoryChange("Todas")
         }
+
+        // Listen to category changes and fetch YouTube videos accordingly
+        viewModelScope.launch {
+            _selectedCategory.collectLatest { category ->
+                fetchCategoryVideosIfNeeded(category)
+            }
+        }
         
         // Dynamic re-filtering of searchResults when blacklist/config/state updates in real-time
         viewModelScope.launch {
@@ -178,6 +165,36 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
                 Unit
             }.debounce(150).collectLatest {
                 filterVideos()
+            }
+        }
+
+        // Dynamic fetching of real YouTube related videos when a video plays
+        viewModelScope.launch {
+            _activeVideo.collect { active ->
+                if (active != null) {
+                    val query = active.title
+                    val results = GeminiService.searchYoutubePublicly(query)
+                    val filtered = results.filter { video ->
+                        if (video.id == active.id) return@filter false
+                        val filter = parentFilterState.firstOrNull() ?: return@filter true
+                        val blockedChList = filter.blockedCh.map { it.channelName.trim().lowercase() }
+                        val videoChannel = video.channelName.trim().lowercase()
+                        if (blockedChList.any { blocked -> videoChannel == blocked || videoChannel.contains(blocked) || blocked.contains(videoChannel) }) return@filter false
+                        if (filter.config.isStrictChannelMode) {
+                            val allowedChList = filter.allowedCh.map { it.channelName.trim().lowercase() }
+                            if (allowedChList.none { allowed -> videoChannel == allowed || videoChannel.contains(allowed) }) return@filter false
+                        }
+                        val blockedWList = filter.blockedW.map { it.word.trim().lowercase() }
+                        val titleText = video.title.lowercase()
+                        for (word in blockedWList) {
+                            if (titleText.contains(word)) return@filter false
+                        }
+                        true
+                    }
+                    _recommendedVideos.value = filtered
+                } else {
+                    _recommendedVideos.value = emptyList()
+                }
             }
         }
 
@@ -304,48 +321,124 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         filterVideos()
     }
 
+    fun fetchCategoryVideosIfNeeded(category: String) {
+        val currentCache = _categoryVideosCache.value
+        if (currentCache[category].orEmpty().isNotEmpty()) {
+            filterVideos()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            val query = when (category) {
+                "Todas" -> "desenho educativo infantil completo"
+                "Astronomia" -> "sistema solar para crianças"
+                "Dinossauros" -> "dinossauros para crianças"
+                "Ciências" -> "manual do mundo experiencias simples"
+                "Música" -> "musica infantil bita"
+                "Artes" -> "desenho infantil facil"
+                else -> "desenho educativo infantil"
+            }
+
+            withContext(Dispatchers.Main) {
+                _isCategoryLoading.value = true
+            }
+
+            try {
+                val results = GeminiService.searchYoutubePublicly(query)
+                val filtered = results.filter { isVideoAllowed(it) }.map { it.copy(category = category) }
+                _categoryVideosCache.value = _categoryVideosCache.value + (category to filtered)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                withContext(Dispatchers.Main) {
+                    _isCategoryLoading.value = false
+                }
+                filterVideos()
+            }
+        }
+    }
+
+    fun performKidsSearch(query: String) {
+        if (query.trim().isEmpty()) {
+            _kidsYoutubeSearchResults.value = emptyList()
+            filterVideos()
+            return
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            // Check local moderation first
+            val localModeration = GeminiService.evaluateLocally(query)
+            if (!localModeration.safe) {
+                val profile = _currentProfile.value
+                if (profile != null) {
+                    repository.logSearchBlock(profile.id, query)
+                }
+                _unsafeSearchResponse.value = localModeration
+                _searchResults.value = emptyList()
+                return@launch
+            }
+
+            val config = parentConfig.value
+            if (config.isSmartCuratorMode) {
+                withContext(Dispatchers.Main) {
+                    _isSmartCurating.value = true
+                }
+                val aiModeration = GeminiService.auditContent(query)
+                withContext(Dispatchers.Main) {
+                    _isSmartCurating.value = false
+                }
+
+                if (!aiModeration.safe) {
+                    val profile = _currentProfile.value
+                    if (profile != null) {
+                        repository.logSearchBlock(profile.id, query)
+                    }
+                    _unsafeSearchResponse.value = aiModeration
+                    _searchResults.value = emptyList()
+                    return@launch
+                }
+            }
+
+            withContext(Dispatchers.Main) {
+                _isSmartCurating.value = true
+            }
+            try {
+                val results = GeminiService.searchYoutubePublicly(query)
+                val filtered = results.filter { isVideoAllowed(it) }
+                _kidsYoutubeSearchResults.value = filtered
+                _unsafeSearchResponse.value = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+            } finally {
+                withContext(Dispatchers.Main) {
+                    _isSmartCurating.value = false
+                }
+                filterVideos()
+            }
+        }
+    }
+
     private fun filterVideos() {
         val query = _searchQuery.value.trim()
         val category = _selectedCategory.value
 
         viewModelScope.launch(Dispatchers.IO) {
-            if (query.isNotEmpty()) {
-                val config = parentConfig.value
-                val profile = _currentProfile.value
+            val approvedVideos = customApprovedVideos.value
+            val categoryVideos = _categoryVideosCache.value[category].orEmpty()
+            val kidsSearchResults = _kidsYoutubeSearchResults.value
 
-                // Simple check against local blocked words first
-                val localModeration = GeminiService.evaluateLocally(query)
-                if (!localModeration.safe) {
-                    if (profile != null) {
-                        repository.logSearchBlock(profile.id, query)
-                    }
-                    _unsafeSearchResponse.value = localModeration
-                    _searchResults.value = emptyList()
-                    return@launch
-                }
-
-                // If parent enabled AI curating, check Gemini API
-                if (config.isSmartCuratorMode) {
-                    _isSmartCurating.value = true
-                    val aiModeration = GeminiService.auditContent(query)
-                    _isSmartCurating.value = false
-
-                    if (!aiModeration.safe) {
-                        if (profile != null) {
-                            repository.logSearchBlock(profile.id, query)
-                        }
-                        _unsafeSearchResponse.value = aiModeration
-                        _searchResults.value = emptyList()
-                        return@launch
-                    }
-                }
+            // 1. Determine the source list
+            val sourceVideos = if (query.isNotEmpty() && kidsSearchResults.isNotEmpty()) {
+                (approvedVideos + kidsSearchResults).distinctBy { it.id }
+            } else if (query.isNotEmpty()) {
+                (approvedVideos + categoryVideos + repository.onlineYoutubeVideos).distinctBy { it.id }
+            } else {
+                (approvedVideos + categoryVideos).distinctBy { it.id }
             }
 
-            // Word and channel filters
-            val allSourceVideos = (repository.presetVideos + _customApprovedVideos.value + repository.onlineYoutubeVideos).distinctBy { it.id }
-
-            val filtered = allSourceVideos.filter { video ->
-                val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase())
+            // 2. Filter by category, query and parental rules
+            val filtered = sourceVideos.filter { video ->
+                val matchesCategory = (category == "Todas" || video.category.lowercase() == category.lowercase() || query.isNotEmpty())
                 val matchesQuery = (query.isEmpty() || video.title.lowercase().contains(query.lowercase()) ||
                         video.channelName.lowercase().contains(query.lowercase()))
                 val isNotBlocked = isVideoAllowed(video)
@@ -364,7 +457,6 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         filterVideos()
     }
 
-    // --- Parent-Centric YouTube Premium Search and Approvals ---
     fun searchYoutubeAsParent(query: String) {
         _parentYoutubeSearchQuery.value = query
         if (query.trim().isEmpty()) {
@@ -373,29 +465,82 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         viewModelScope.launch(Dispatchers.IO) {
-            val matches = repository.onlineYoutubeVideos.filter {
-                it.title.lowercase().contains(query.lowercase()) ||
-                        it.channelName.lowercase().contains(query.lowercase())
+            var realResults = emptyList<KidVideo>()
+            val apiKey = BuildConfig.GEMINI_API_KEY
+            if (apiKey.isNotEmpty() && apiKey != "MY_GEMINI_API_KEY") {
+                realResults = GeminiService.searchYoutubeViaAI(query)
             }
-            _parentYoutubeSearchResults.value = matches
+            if (realResults.isEmpty()) {
+                realResults = GeminiService.searchYoutubePublicly(query)
+            }
+            _parentYoutubeSearchResults.value = realResults
         }
     }
 
     fun approveVideoForApp(video: KidVideo) {
         viewModelScope.launch(Dispatchers.IO) {
-            val currentList = _customApprovedVideos.value
-            if (!currentList.any { it.id == video.id }) {
-                _customApprovedVideos.value = currentList + video
-            }
-            // Trigger child home filter refresh
+            repository.saveApprovedVideo(video)
             filterVideos()
         }
     }
 
     fun removeApprovedVideo(videoId: String) {
         viewModelScope.launch(Dispatchers.IO) {
-            _customApprovedVideos.value = _customApprovedVideos.value.filter { it.id != videoId }
-            // Trigger child home filter refresh
+            repository.deleteApprovedVideo(videoId)
+            filterVideos()
+        }
+    }
+
+    fun importSampleVideos() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val samples = listOf(
+                KidVideo(
+                    id = "wX_347_bY9U",
+                    title = "Música dos Planetas Animados",
+                    channelName = "Mundo Bita",
+                    thumbnailUrl = "https://img.youtube.com/vi/wX_347_bY9U/hqdefault.jpg",
+                    durationText = "3:20",
+                    category = "Música",
+                    description = "Cante e dance com o Bita numa jornada de foguete pelos astros mais brilhantes!"
+                ),
+                KidVideo(
+                    id = "k9vL_XmpSqE",
+                    title = "Como Funciona o Arco-Íris?",
+                    channelName = "Manual do Mundo",
+                    thumbnailUrl = "https://img.youtube.com/vi/k9vL_XmpSqE/hqdefault.jpg",
+                    durationText = "6:40",
+                    category = "Ciências",
+                    description = "Iberê explica com experimentos simples como a luz do sol vira cores mágicas na água!"
+                ),
+                KidVideo(
+                    id = "vP79aL_KxpM",
+                    title = "O Mistério das Estrelas Cadentes",
+                    channelName = "Ciência Espacial",
+                    thumbnailUrl = "https://img.youtube.com/vi/vP79aL_KxpM/hqdefault.jpg",
+                    durationText = "5:45",
+                    category = "Astronomia",
+                    description = "Descubra o que realmente são as estrelas cadentes que brilham à noite no céu."
+                ),
+                KidVideo(
+                    id = "bB3_F9Lp_Kx",
+                    title = "Galinha Pintadinha - Noite de São João",
+                    channelName = "Galinha Pintadinha",
+                    thumbnailUrl = "https://img.youtube.com/vi/bB3_F9Lp_Kx/hqdefault.jpg",
+                    durationText = "2:50",
+                    category = "Música",
+                    description = "As canções e danças mais alegres da galinha mais amada do Brasil!"
+                ),
+                KidVideo(
+                    id = "dD8_Xpl_Lka",
+                    title = "Peppa Pig - Visita ao Planetário",
+                    channelName = "Peppa Pig Português",
+                    thumbnailUrl = "https://img.youtube.com/vi/dD8_Xpl_Lka/hqdefault.jpg",
+                    durationText = "5:00",
+                    category = "Desenhos",
+                    description = "Peppa, George e seus amiguinhos vão ao planetário aprender sobre as estrelas e a lua."
+                )
+            )
+            samples.forEach { repository.saveApprovedVideo(it) }
             filterVideos()
         }
     }
@@ -599,6 +744,16 @@ class LeaoViewModel(application: Application) : AndroidViewModel(application) {
             repository.removeProfile(id)
             if (_currentProfile.value?.id == id) {
                 _currentProfile.value = null
+            }
+        }
+    }
+
+    fun resetApp() {
+        viewModelScope.launch(Dispatchers.IO) {
+            database.clearAllTables()
+            repository.autoPopulateDefaults()
+            withContext(Dispatchers.Main) {
+                navigateTo(LeaoScreen.Splash)
             }
         }
     }

@@ -93,6 +93,17 @@ data class ParentConfig(
     val connectedPhoto: String? = null
 )
 
+@Entity(tableName = "approved_videos")
+data class ApprovedVideo(
+    @PrimaryKey val id: String,
+    val title: String,
+    val channelName: String,
+    val thumbnailUrl: String,
+    val durationText: String,
+    val category: String,
+    val description: String
+)
+
 // --- DAOs (Data Access Objects) ---
 
 @Dao
@@ -215,6 +226,16 @@ interface LeaoDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun saveParentConfig(config: ParentConfig)
+
+    // Approved Videos
+    @Query("SELECT * FROM approved_videos ORDER BY title ASC")
+    fun getAllApprovedVideos(): Flow<List<ApprovedVideo>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertApprovedVideo(video: ApprovedVideo)
+
+    @Query("DELETE FROM approved_videos WHERE id = :id")
+    suspend fun deleteApprovedVideo(id: String)
 }
 
 // --- App Database Class ---
@@ -230,9 +251,10 @@ interface LeaoDao {
         BlockedChannel::class,
         AllowedChannel::class,
         BlockedSearchAttempt::class,
-        ParentConfig::class
+        ParentConfig::class,
+        ApprovedVideo::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class LeaoDatabase : RoomDatabase() {
@@ -248,7 +270,9 @@ abstract class LeaoDatabase : RoomDatabase() {
                     context.applicationContext,
                     LeaoDatabase::class.java,
                     "leao_kids_db"
-                ).build()
+                )
+                .fallbackToDestructiveMigration()
+                .build()
                 INSTANCE = instance
                 instance
             }

@@ -16,6 +16,8 @@ import retrofit2.http.Body
 import retrofit2.http.POST
 import retrofit2.http.Query
 import java.util.concurrent.TimeUnit
+import java.net.URLEncoder
+import java.util.regex.Pattern
 
 // --- Moshi Models for Gemini API ---
 
@@ -191,4 +193,209 @@ object GeminiService {
             suggestedAlternative = ""
         )
     }
+
+    /**
+     * Search YouTube videos via Gemini AI.
+     */
+    suspend fun searchYoutubeViaAI(query: String): List<KidVideo> = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+            return@withContext emptyList()
+        }
+
+        val prompt = """
+            Você é um assistente de busca do YouTube Kids. O usuário quer buscar vídeos sobre: "$query". 
+            Encontre 5 vídeos reais e seguros do YouTube que correspondam a essa busca (ex: vídeos reais de canais infantis populares).
+            Retorne exclusivamente um objeto JSON com os campos descritos abaixo (sem Markdown, sem blocos de código):
+            {
+              "videos": [
+                {
+                  "id": "ID do vídeo do YouTube de 11 caracteres",
+                  "title": "Título legível do vídeo",
+                  "channelName": "Nome do canal oficial do vídeo",
+                  "description": "Uma breve descrição do que acontece no vídeo",
+                  "durationText": "Duração do vídeo (ex: 5:40)",
+                  "category": "Categoria sugerida para o vídeo (ex: Ciências, Astronomia, Dinossauros, Música, etc.)"
+                }
+              ]
+            }
+        """.trimIndent()
+
+        val request = GenerateContentRequest(
+            contents = listOf(Content(parts = listOf(Part(text = prompt)))),
+            generationConfig = GenerationConfig(
+                responseFormat = ResponseFormat(
+                    text = ResponseFormatText(mimeType = "application/json")
+                ),
+                temperature = 0.5f
+            ),
+            systemInstruction = Content(parts = listOf(Part(text = "Você é um gerador de resultados de busca do YouTube Kids, retornando apenas JSON estruturado de vídeos reais e seguros.")))
+        )
+
+        try {
+            val response = api.generateContent(apiKey, request)
+            val jsonText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            if (jsonText != null) {
+                val adapter = moshi.adapter(YoutubeSearchResponse::class.java)
+                val searchResponse = adapter.fromJson(jsonText)
+                searchResponse?.videos?.map { item ->
+                    KidVideo(
+                        id = item.id,
+                        title = item.title,
+                        channelName = item.channelName,
+                        thumbnailUrl = "https://img.youtube.com/vi/${item.id}/hqdefault.jpg",
+                        durationText = item.durationText,
+                        category = item.category,
+                        description = item.description
+                    )
+                } ?: emptyList()
+            } else {
+                emptyList()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Search YouTube videos publicly using a web scraper that extracts video ID, title, and channel.
+     */
+    suspend fun searchYoutubePublicly(query: String): List<KidVideo> = withContext(Dispatchers.IO) {
+        val url = "https://www.youtube.com/results?search_query=${URLEncoder.encode(query, "UTF-8")}"
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36")
+            .build()
+        try {
+            val response = okHttpClient.newCall(request).execute()
+            val html = response.body?.string() ?: ""
+            
+            val videoList = mutableListOf<KidVideo>()
+            val pattern = Pattern.compile("\"videoRenderer\":\\{\"videoId\":\"([a-zA-Z0-9_-]{11})\"(.*?)\"title\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}(.*?)\"longBylineText\":\\{\"runs\":\\[\\{\"text\":\"(.*?)\"\\}\\]\\}")
+            val matcher = pattern.matcher(html)
+            var count = 0
+            while (matcher.find() && count < 8) {
+                val id = matcher.group(1)
+                val title = matcher.group(3)?.replace("\\u0026", "&") ?: ""
+                val channel = matcher.group(5)?.replace("\\u0026", "&") ?: "YouTube"
+                if (id != null && title.isNotEmpty()) {
+                    videoList.add(
+                        KidVideo(
+                            id = id,
+                            title = title,
+                            channelName = channel,
+                            thumbnailUrl = "https://img.youtube.com/vi/$id/hqdefault.jpg",
+                            durationText = "Vídeo",
+                            category = "YouTube",
+                            description = "Vídeo real do YouTube."
+                        )
+                    )
+                    count++
+                }
+            }
+            videoList
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    /**
+     * Gets title, channel and description for a specific video ID using Gemini AI curation.
+     */
+    suspend fun getVideoDetailsViaAI(videoId: String, pageTitle: String): KidVideo = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        val cleanTitle = pageTitle.replace(" - YouTube", "").replace(" - YouTube Mobile", "").trim()
+        
+        val defaultVideo = KidVideo(
+            id = videoId,
+            title = cleanTitle,
+            channelName = "YouTube",
+            thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg",
+            durationText = "Vídeo",
+            category = "Geral",
+            description = "Vídeo liberado do YouTube."
+        )
+
+        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+            return@withContext defaultVideo
+        }
+
+        val prompt = """
+            Dado o ID do vídeo do YouTube "$videoId" e o título bruto "$cleanTitle", retorne detalhes limpos sobre o vídeo para uso infantil (ex: canal real, título limpo, categoria adequada).
+            Retorne exclusivamente um objeto JSON (sem Markdown, sem blocos de código):
+            {
+              "title": "Título limpo e amigável do vídeo",
+              "channelName": "Nome do canal oficial do vídeo",
+              "description": "Uma breve descrição amigável para crianças",
+              "category": "Uma destas categorias: Ciências, Astronomia, Dinossauros, Música, Artes, Desenhos, Geral"
+            }
+        """.trimIndent()
+
+        val request = GenerateContentRequest(
+            contents = listOf(Content(parts = listOf(Part(text = prompt)))),
+            generationConfig = GenerationConfig(
+                responseFormat = ResponseFormat(
+                    text = ResponseFormatText(mimeType = "application/json")
+                ),
+                temperature = 0.2f
+            ),
+            systemInstruction = Content(parts = listOf(Part(text = "Você é um formatador de metadados de vídeos do YouTube Kids, retornando apenas JSON estruturado.")))
+        )
+
+        try {
+            val response = api.generateContent(apiKey, request)
+            val jsonText = response.candidates?.firstOrNull()?.content?.parts?.firstOrNull()?.text
+            if (jsonText != null) {
+                val adapter = moshi.adapter(Map::class.java)
+                val map = adapter.fromJson(jsonText)
+                if (map != null) {
+                    return@withContext KidVideo(
+                        id = videoId,
+                        title = map["title"]?.toString() ?: cleanTitle,
+                        channelName = map["channelName"]?.toString() ?: "YouTube",
+                        thumbnailUrl = "https://img.youtube.com/vi/$videoId/hqdefault.jpg",
+                        durationText = "Vídeo",
+                        category = map["category"]?.toString() ?: "Geral",
+                        description = map["description"]?.toString() ?: "Vídeo liberado do YouTube."
+                    )
+                }
+            }
+            defaultVideo
+        } catch (e: Exception) {
+            e.printStackTrace()
+            defaultVideo
+        }
+    }
+
+    /**
+     * Extracts video ID from standard YouTube mobile or desktop URLs.
+     */
+    fun extractYoutubeVideoId(url: String?): String? {
+        if (url == null) return null
+        val pattern = "(?:v=|\\/embed\\/|\\/v\\/|youtu\\.be\\/|\\/watch\\?v=|\\&v=)([^#\\&\\?]{11})"
+        val compiledPattern = Pattern.compile(pattern)
+        val matcher = compiledPattern.matcher(url)
+        return if (matcher.find()) {
+            matcher.group(1)
+        } else {
+            null
+        }
+    }
 }
+
+@JsonClass(generateAdapter = true)
+data class YoutubeVideoItem(
+    @Json(name = "id") val id: String,
+    @Json(name = "title") val title: String,
+    @Json(name = "channelName") val channelName: String,
+    @Json(name = "description") val description: String,
+    @Json(name = "durationText") val durationText: String,
+    @Json(name = "category") val category: String
+)
+
+@JsonClass(generateAdapter = true)
+data class YoutubeSearchResponse(
+    @Json(name = "videos") val videos: List<YoutubeVideoItem>
+)

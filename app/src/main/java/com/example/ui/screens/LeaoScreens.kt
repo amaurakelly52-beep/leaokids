@@ -1,9 +1,18 @@
 package com.example.ui.screens
 
+import android.accounts.AccountManager
+import android.app.Activity
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.view.ViewGroup
 import android.webkit.WebResourceRequest
+import android.graphics.Bitmap
+import android.widget.Toast
+import java.util.regex.Pattern
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.ui.text.input.ImeAction
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.compose.animation.*
@@ -44,7 +53,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
+import com.example.R
 import com.example.data.ChildProfile
 import com.example.data.KidVideo
 import com.example.ui.LeaoScreen
@@ -205,13 +216,14 @@ fun SplashScreen(viewModel: LeaoViewModel) {
                         .background(Color(0x33FFB68B), CircleShape)
                 )
 
-                // High quality mascot illustration
-                AsyncImage(
-                    model = "https://lh3.googleusercontent.com/aida-public/AB6AXuAhEYselL__exfw8GMaFTrTKUlRDpC_ykPSiiGT-QLt_UFyqjr-9xFZ8CvuijGgO9XMoJokSWWydMxXtUcQc6WPUmij7lHNwwiaudfSQ_UUwy8lLdxL71zJjIEudO7fbuZaZBMCCp81d2DL2PeeQCBm6OF2POAAevnYStrtqS8JtH0tfyCJ-qDc9VD-vMmiAY8x0hsPIA7TbasanetrzC6avj3eFug9NvDuaiwJWAQIIu17VICDRhLSUmxrj9wHM0XhClVnTXLc7no",
-                    contentDescription = "Leãozinho Mascot",
+                // High quality logo illustration
+                Image(
+                    painter = painterResource(id = R.drawable.logo),
+                    contentDescription = "Leão Kids Logo",
                     modifier = Modifier
-                        .size(200.dp)
-                        .shadow(4.dp, CircleShape)
+                        .fillMaxWidth(0.9f)
+                        .height(180.dp),
+                    contentScale = ContentScale.Fit
                 )
             }
 
@@ -644,6 +656,7 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val currentCategory by viewModel.selectedCategory.collectAsStateWithLifecycle()
     val isSmartCurating by viewModel.isSmartCurating.collectAsStateWithLifecycle()
+    val isCategoryLoading by viewModel.isCategoryLoading.collectAsStateWithLifecycle()
     val unsafeResponse by viewModel.unsafeSearchResponse.collectAsStateWithLifecycle()
     val favorites by viewModel.favoritesList.collectAsStateWithLifecycle()
 
@@ -783,7 +796,7 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
 
                         SquishyButton(
                             onClick = {
-                                val firstVideo = viewModel.presetVideos.firstOrNull()
+                                val firstVideo = viewModel.customApprovedVideos.value.firstOrNull() ?: viewModel.presetVideos.firstOrNull()
                                 if (firstVideo != null) {
                                     viewModel.selectVideoAndNavigate(firstVideo)
                                 }
@@ -814,10 +827,11 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
 
         // Custom search bar input
         item {
-            Box(
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 OutlinedTextField(
                     value = searchQuery,
@@ -838,9 +852,12 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
                         }
                     },
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .testTag("kids_search_bar"),
                     shape = RoundedCornerShape(24.dp),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                    keyboardActions = KeyboardActions(onSearch = { viewModel.performKidsSearch(searchQuery) }),
                     colors = TextFieldDefaults.colors(
                         focusedContainerColor = Color(0xFFFFECE3),
                         unfocusedContainerColor = Color(0xFFFFECE3),
@@ -848,6 +865,15 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
                         unfocusedIndicatorColor = Color(0xFFFFDFC8)
                     )
                 )
+                Spacer(modifier = Modifier.width(8.dp))
+                Button(
+                    onClick = { viewModel.performKidsSearch(searchQuery) },
+                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                    shape = RoundedCornerShape(24.dp),
+                    modifier = Modifier.height(56.dp)
+                ) {
+                    Text("Buscar", fontWeight = FontWeight.Bold, color = Color.White)
+                }
             }
         }
 
@@ -970,8 +996,27 @@ fun ChildHomeScreen(viewModel: LeaoViewModel) {
                 }
             }
 
-            // SMART AI FILTER LOADER
-            if (isSmartCurating) {
+            // DYNAMIC CATEGORY LOADER
+            if (isCategoryLoading) {
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(40.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        CircularProgressIndicator(color = PrimaryOrange)
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = "Carregando novidades direto do YouTube...",
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF584235),
+                            fontSize = 14.sp,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+            } else if (isSmartCurating) {
                 item {
                     Column(
                         modifier = Modifier
@@ -1724,12 +1769,22 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
     var inputChannel by remember { mutableStateOf("") }
     var inputAllowedChannel by remember { mutableStateOf("") }
 
-    var showGoogleAuthSheet by remember { mutableStateOf(false) }
-
     var editingProfile by remember { mutableStateOf<ChildProfile?>(null) }
     var editNameInput by remember { mutableStateOf("") }
     var editBoyOption by remember { mutableStateOf(true) }
     var editAvatarUrl by remember { mutableStateOf("") }
+
+    val accountChooserLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val data = result.data
+            val accountName = data?.getStringExtra(AccountManager.KEY_ACCOUNT_NAME)
+            if (accountName != null) {
+                viewModel.connectMockGoogleAccount(accountName, accountName.substringBefore("@"))
+            }
+        }
+    }
 
     LazyColumn(
         modifier = Modifier
@@ -1738,6 +1793,7 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
         contentPadding = PaddingValues(24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // --- CABEÇALHO ---
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1776,298 +1832,801 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
             }
         }
 
+        // --- SELEÇÃO DE ABAS ---
         item {
-            Box(
+            TabRow(
+                selectedTabIndex = activeTab,
+                containerColor = Color.White,
+                contentColor = PrimaryOrange,
                 modifier = Modifier
-                    .fillParentMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(16.dp))
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "Conectar Conta do Responsável",
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color(0xFF251912)
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = if (pConfig.connectedEmail != null) {
-                                "André (${pConfig.connectedEmail})\nModo Premium Ativado ✨"
-                            } else {
-                                "Sincronize com o Google para monitoramento premium."
-                            },
-                            fontSize = 12.sp,
-                            color = Color.Gray,
-                            lineHeight = 16.sp
-                        )
-                    }
-
-                    SquishyButton(
-                        onClick = {
-                            if (pConfig.connectedEmail != null) {
-                                viewModel.disconnectGoogleAccount()
-                            } else {
-                                showGoogleAuthSheet = true
-                            }
-                        },
-                        backgroundColor = if (pConfig.connectedEmail != null) Color.Gray else SecondaryBlue,
-                        shadowColor = if (pConfig.connectedEmail != null) Color.DarkGray else SecondaryBlue,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.wrapContentSize(),
-                        testTag = "google_connect_button"
-                    ) {
-                        Text(
-                            text = if (pConfig.connectedEmail != null) "Desconectar" else "Entrar com Google",
-                            color = Color.White,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                Tab(
+                    selected = activeTab == 0,
+                    onClick = { activeTab = 0 },
+                    text = { Text("Configurações", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = activeTab == 1,
+                    onClick = { activeTab = 1 },
+                    text = { Text("Pesquisa YouTube", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
+                Tab(
+                    selected = activeTab == 2,
+                    onClick = { activeTab = 2 },
+                    text = { Text("Navegar no YouTube", fontWeight = FontWeight.Bold, fontSize = 12.sp) }
+                )
             }
         }
 
-        // --- SEÇÃO 1: GERENCIAR PERFIS DAS CRIANÇAS ---
-        item {
-            Column(
-                modifier = Modifier
-                    .fillParentMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Text(
-                    text = "Gerenciar Perfis das Crianças",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
-                )
-                Spacer(modifier = Modifier.height(12.dp))
+        // --- ABA 0: CONFIGURAÇÕES E AMBIENTES ---
+        if (activeTab == 0) {
+            item {
+                Box(
+                    modifier = Modifier
+                        .fillParentMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Conectar Conta do Responsável",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF251912)
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (pConfig.connectedEmail != null) {
+                                    "${pConfig.connectedName ?: "Responsável"} (${pConfig.connectedEmail})\nModo Premium Ativado ✨"
+                                } else {
+                                    "Sincronize com o Google para monitoramento premium."
+                                },
+                                fontSize = 12.sp,
+                                color = Color.Gray,
+                                lineHeight = 16.sp
+                            )
+                        }
 
-                if (childProfiles.isEmpty()) {
-                    Text("Nenhum perfil cadastrado.", fontSize = 13.sp, color = Color.Gray)
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        childProfiles.forEach { child ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
-                                    .border(1.dp, Color(0xFFF0F0F0), RoundedCornerShape(16.dp))
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    AsyncImage(
-                                        model = child.avatarUrl,
-                                        contentDescription = "Avatar de ${child.name}",
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .clip(CircleShape)
-                                            .border(1.5.dp, if (child.isBoy) SecondaryBlue else Color(0xFFFF69B4), CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                    Spacer(modifier = Modifier.width(12.dp))
-                                    Column {
-                                        Text(child.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF251912))
-                                        Text(
-                                            text = if (child.isBoy) "Tema: Cosmos (Espaço)" else "Tema: Magia (Fadas)",
-                                            fontSize = 11.sp,
-                                            color = Color.Gray
+                        SquishyButton(
+                            onClick = {
+                                if (pConfig.connectedEmail != null) {
+                                    viewModel.disconnectGoogleAccount()
+                                } else {
+                                    try {
+                                        val intent = AccountManager.newChooseAccountIntent(
+                                            null,
+                                            null,
+                                            arrayOf("com.google"),
+                                            true,
+                                            null,
+                                            null,
+                                            null,
+                                            null
                                         )
+                                        accountChooserLauncher.launch(intent)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                        // Fallback manual if account picker is not available
+                                        viewModel.connectMockGoogleAccount("premium@youtube.com", "Responsável")
                                     }
                                 }
-
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    // Editar
-                                    IconButton(
-                                        onClick = {
-                                            editingProfile = child
-                                            editNameInput = child.name
-                                            editBoyOption = child.isBoy
-                                            editAvatarUrl = child.avatarUrl
-                                        },
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .background(Color(0xFFE3F2FD), CircleShape)
-                                    ) {
-                                        Icon(Icons.Filled.Edit, contentDescription = "Editar Perfil", tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
-                                    }
-
-                                    // Excluir
-                                    IconButton(
-                                        onClick = { viewModel.deleteChildProfile(child.id) },
-                                        modifier = Modifier
-                                            .size(36.dp)
-                                            .background(Color(0xFFFFEBEE), CircleShape)
-                                    ) {
-                                        Icon(Icons.Filled.Delete, contentDescription = "Excluir Perfil", tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
-                                    }
-                                }
-                            }
+                            },
+                            backgroundColor = if (pConfig.connectedEmail != null) Color.Gray else SecondaryBlue,
+                            shadowColor = if (pConfig.connectedEmail != null) Color.DarkGray else SecondaryBlue,
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.wrapContentSize(),
+                            testTag = "google_connect_button"
+                        ) {
+                            Text(
+                                text = if (pConfig.connectedEmail != null) "Desconectar" else "Entrar com Google",
+                                color = Color.White,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
                         }
                     }
                 }
             }
-        }
 
-        // --- SEÇÃO 2: CURADORIA ATIVA DO YOUTUBE PREMIUM ---
-        item {
-            val youtubeSearchQuery by viewModel.parentYoutubeSearchQuery.collectAsStateWithLifecycle()
-            val youtubeSearchResults by viewModel.parentYoutubeSearchResults.collectAsStateWithLifecycle()
-            val customApproved by viewModel.customApprovedVideos.collectAsStateWithLifecycle()
-            var localSearchInput by remember { mutableStateOf(youtubeSearchQuery) }
-
-            Column(
-                modifier = Modifier
-                    .fillParentMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(24.dp))
-                    Spacer(modifier = Modifier.width(8.dp))
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillParentMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
                     Text(
-                        text = "Gerenciador YouTube Premium",
+                        text = "Gerenciar Perfis das Crianças",
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFF251912)
                     )
-                }
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = "Pesquise e libere vídeos do YouTube Premium para sincronizar diretamente com o aplicativo da criança.",
-                    fontSize = 12.sp,
-                    color = Color.Gray,
-                    lineHeight = 16.sp
-                )
-                Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = localSearchInput,
-                        onValueChange = { localSearchInput = it },
-                        placeholder = { Text("Pesquisar vídeos ou canais...") },
-                        modifier = Modifier.weight(1f),
-                        singleLine = true,
-                        shape = RoundedCornerShape(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Button(
-                        onClick = { viewModel.searchYoutubeAsParent(localSearchInput) },
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.height(56.dp)
-                    ) {
-                        Text("Buscar", fontWeight = FontWeight.Bold, color = Color.White)
+                    if (childProfiles.isEmpty()) {
+                        Text("Nenhum perfil cadastrado.", fontSize = 13.sp, color = Color.Gray)
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            childProfiles.forEach { child ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
+                                        .border(1.dp, Color(0xFFF0F0F0), RoundedCornerShape(16.dp))
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        AsyncImage(
+                                            model = child.avatarUrl,
+                                            contentDescription = "Avatar de ${child.name}",
+                                            modifier = Modifier
+                                                .size(44.dp)
+                                                .clip(CircleShape)
+                                                .border(1.5.dp, if (child.isBoy) SecondaryBlue else Color(0xFFFF69B4), CircleShape),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column {
+                                            Text(child.name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF251912))
+                                            Text(
+                                                text = if (child.isBoy) "Tema: Cosmos (Espaço)" else "Tema: Magia (Fadas)",
+                                                fontSize = 11.sp,
+                                                color = Color.Gray
+                                            )
+                                        }
+                                    }
+
+                                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        IconButton(
+                                            onClick = {
+                                                editingProfile = child
+                                                editNameInput = child.name
+                                                editBoyOption = child.isBoy
+                                                editAvatarUrl = child.avatarUrl
+                                            },
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .background(Color(0xFFE3F2FD), CircleShape)
+                                        ) {
+                                            Icon(Icons.Filled.Edit, contentDescription = "Editar Perfil", tint = Color(0xFF1976D2), modifier = Modifier.size(16.dp))
+                                        }
+
+                                        IconButton(
+                                            onClick = { viewModel.deleteChildProfile(child.id) },
+                                            modifier = Modifier
+                                                .size(36.dp)
+                                                .background(Color(0xFFFFEBEE), CircleShape)
+                                        ) {
+                                            Icon(Icons.Filled.Delete, contentDescription = "Excluir Perfil", tint = Color(0xFFD32F2F), modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
+            }
 
-                if (youtubeSearchResults.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(16.dp))
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
                     Text(
-                        text = "Resultados Encontrados (${youtubeSearchResults.size}):",
+                        text = "Controle de Tempo de Tela",
+                        fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
+                        color = Color(0xFF251912)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceAround
+                    ) {
+                        val times = listOf(1, 15, 30, 60, 120)
+                        times.forEach { time ->
+                            val isSel = pConfig.screenTimeLimitMinutes == time
+                            Box(
+                                modifier = Modifier
+                                    .background(
+                                        if (isSel) PrimaryOrange else Color(0xFFFFECE3),
+                                        RoundedCornerShape(10.dp)
+                                    )
+                                    .clickable { viewModel.updateScreenTimeTimer(time) }
+                                    .padding(horizontal = 14.dp, vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = if (time == 1) "1 Min (Teste)" else "${time}m",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isSel) Color.White else PrimaryOrange
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    Text(
+                        text = "Modos de Segurança",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912)
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Modo Restrito de Canais", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Somente canais aprovados serão visíveis no app.", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = pConfig.isStrictChannelMode,
+                            onCheckedChange = { viewModel.changeStrictChannelMode(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3))
+                        )
+                    }
+
+                    Divider(color = Color(0xFFFFEADF))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Modo Curadoria Inteligente (IA)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("Utiliza modelos Google Gemini para filtrar todas as buscas das crianças.", fontSize = 11.sp, color = Color.Gray)
+                        }
+                        Switch(
+                            checked = pConfig.isSmartCuratorMode,
+                            onCheckedChange = { viewModel.changeSmartCuratorMode(it) },
+                            colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3)),
+                            modifier = Modifier.testTag("ai_curator_mode_switch")
+                        )
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "Blacklist de Palavras",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
                         color = Color(0xFF251912)
                     )
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        youtubeSearchResults.forEach { video ->
-                            val isAlreadyApproved = customApproved.any { it.id == video.id }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputWord,
+                            onValueChange = { inputWord = it },
+                            placeholder = { Text("Adicionar palavra...") },
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("add_banned_word_input"),
+                            shape = RoundedCornerShape(12.dp)
+                        )
 
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
-                                    .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(16.dp))
-                                    .padding(8.dp)
-                            ) {
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                if (inputWord.trim().isNotEmpty()) {
+                                    viewModel.addBlockedWord(inputWord.trim())
+                                    inputWord = ""
+                                }
+                            },
+                            modifier = Modifier
+                                .background(PrimaryOrange, CircleShape)
+                                .testTag("submit_banned_word_button")
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        wordsState.forEach { word ->
+                            AssistChip(
+                                onClick = { viewModel.removeBlockedWord(word.id) },
+                                label = { Text(word.word) },
+                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "Canais Bloqueados",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputChannel,
+                            onValueChange = { inputChannel = it },
+                            placeholder = { Text("Adicionar Canal...") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                if (inputChannel.trim().isNotEmpty()) {
+                                    viewModel.addBlockedChannel(inputChannel.trim())
+                                    inputChannel = ""
+                                }
+                            },
+                            modifier = Modifier.background(PrimaryOrange, CircleShape)
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        channelsState.forEach { channel ->
+                            AssistChip(
+                                onClick = { viewModel.removeBlockedChannel(channel.id) },
+                                label = { Text(channel.channelName) },
+                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
+                    Text(
+                        text = "Canais Permitidos (Modo Aprovados)",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF251912)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = inputAllowedChannel,
+                            onValueChange = { inputAllowedChannel = it },
+                            placeholder = { Text("Permitir Canal...") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        IconButton(
+                            onClick = {
+                                if (inputAllowedChannel.trim().isNotEmpty()) {
+                                    viewModel.addAllowedChannel(inputAllowedChannel.trim())
+                                    inputAllowedChannel = ""
+                                }
+                            },
+                            modifier = Modifier.background(PrimaryOrange, CircleShape)
+                        ) {
+                            Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        allowedState.forEach { ch ->
+                            AssistChip(
+                                onClick = { viewModel.removeAllowedChannel(ch.id) },
+                                label = { Text(ch.channelName) },
+                                trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Tentativas de Busca Bloqueadas",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912)
+                        )
+
+                        if (searchLogsState.isNotEmpty()) {
+                            TextButton(onClick = { viewModel.clearBlockedSearchLogs() }) {
+                                Text("Limpar", color = Color.Red, fontSize = 12.sp)
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (searchLogsState.isEmpty()) {
+                        Text(
+                            "Nenhuma atividade suspeita registrada. As crianças estão seguras! 🎉",
+                            fontSize = 12.sp,
+                            color = Color.Gray,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            searchLogsState.take(10).forEach { item ->
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.Top
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFFFDAD6), RoundedCornerShape(12.dp))
+                                        .padding(12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    // Compact thumbnail
+                                    Column {
+                                        Text(
+                                            text = "Pesquisa: '${item.query}'",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color(0xFF93000a)
+                                        )
+                                        Text(
+                                            text = "Filtrado pelo Leãozinho Inteligente",
+                                            fontSize = 10.sp,
+                                            color = Color.Red.copy(alpha = 0.7f)
+                                        )
+                                    }
+
+                                    Icon(
+                                        imageVector = Icons.Filled.Warning,
+                                        contentDescription = "Bloqueado",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Zona de Perigo",
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFD32F2F)
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Ações administrativas para depurar ou redefinir a base do aplicativo.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val context = LocalContext.current
+                    Button(
+                        onClick = {
+                            viewModel.importSampleVideos()
+                            Toast.makeText(context, "Vídeos de exemplo importados com sucesso! 🎉", Toast.LENGTH_SHORT).show()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = SecondaryBlue),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Importar Vídeos Educativos de Exemplo", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Button(
+                        onClick = { viewModel.resetApp() },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFD32F2F)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth().height(48.dp)
+                    ) {
+                        Text("Limpar Todos os Dados (Redefinir)", fontWeight = FontWeight.Bold, color = Color.White)
+                    }
+                }
+            }
+        }
+
+        // --- ABA 1: CURADORIA ATIVA (PESQUISA DO YOUTUBE) ---
+        if (activeTab == 1) {
+            item {
+                val youtubeSearchQuery by viewModel.parentYoutubeSearchQuery.collectAsStateWithLifecycle()
+                val youtubeSearchResults by viewModel.parentYoutubeSearchResults.collectAsStateWithLifecycle()
+                val customApproved by viewModel.customApprovedVideos.collectAsStateWithLifecycle()
+                var localSearchInput by remember { mutableStateOf(youtubeSearchQuery) }
+
+                Column(
+                    modifier = Modifier
+                        .fillParentMaxWidth()
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(20.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Search, contentDescription = null, tint = PrimaryOrange, modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Gerenciador YouTube Premium",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFF251912)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Pesquise e libere vídeos do YouTube para sincronizar diretamente com o catálogo infantil do app.",
+                        fontSize = 12.sp,
+                        color = Color.Gray,
+                        lineHeight = 16.sp
+                    )
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = localSearchInput,
+                            onValueChange = { localSearchInput = it },
+                            placeholder = { Text("Pesquisar vídeos ou canais...") },
+                            modifier = Modifier.weight(1f),
+                            singleLine = true,
+                            shape = RoundedCornerShape(12.dp),
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                            keyboardActions = KeyboardActions(onSearch = { viewModel.searchYoutubeAsParent(localSearchInput) })
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Button(
+                            onClick = { viewModel.searchYoutubeAsParent(localSearchInput) },
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryOrange),
+                            shape = RoundedCornerShape(12.dp),
+                            modifier = Modifier.height(56.dp)
+                        ) {
+                            Text("Buscar", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    }
+
+                    if (youtubeSearchResults.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "Resultados Encontrados (${youtubeSearchResults.size}):",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF251912)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            youtubeSearchResults.forEach { video ->
+                                val isAlreadyApproved = customApproved.any { it.id == video.id }
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFFAFAFA), RoundedCornerShape(16.dp))
+                                        .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(16.dp))
+                                        .padding(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.Top
+                                    ) {
+                                        AsyncImage(
+                                            model = video.thumbnailUrl,
+                                            contentDescription = video.title,
+                                            modifier = Modifier
+                                                .size(80.dp, 60.dp)
+                                                .clip(RoundedCornerShape(8.dp)),
+                                            contentScale = ContentScale.Crop
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(video.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF251912), maxLines = 2)
+                                            Text("Canal: ${video.channelName} • ${video.durationText}", fontSize = 11.sp, color = Color.Gray)
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(8.dp))
+
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                            TextButton(
+                                                onClick = { viewModel.addBlockedChannel(video.channelName) },
+                                                modifier = Modifier.height(28.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Bloquear Canal", color = Color(0xFFD32F2F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+
+                                            TextButton(
+                                                onClick = { viewModel.addBlockedWord(video.title.split(" ").firstOrNull() ?: video.title) },
+                                                modifier = Modifier.height(28.dp),
+                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Bloquear Título", color = Color(0xFFD32F2F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+
+                                        if (isAlreadyApproved) {
+                                            Button(
+                                                onClick = { viewModel.removeApprovedVideo(video.id) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8F5E9)),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier.height(32.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Liberado ✨", color = Color(0xFF2E7D32), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        } else {
+                                            Button(
+                                                onClick = { viewModel.approveVideoForApp(video) },
+                                                colors = ButtonDefaults.buttonColors(containerColor = SecondaryBlue),
+                                                shape = RoundedCornerShape(12.dp),
+                                                modifier = Modifier.height(32.dp),
+                                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
+                                            ) {
+                                                Text("Liberar no App", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // --- VÍDEOS LIBERADOS LIST ---
+                    if (customApproved.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(24.dp))
+                        Text(
+                            text = "Vídeos Liberados no App (${customApproved.size}):",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp,
+                            color = Color(0xFF2E7D32)
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            customApproved.forEach { video ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFFE8F5E9), RoundedCornerShape(12.dp))
+                                        .padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     AsyncImage(
                                         model = video.thumbnailUrl,
                                         contentDescription = video.title,
                                         modifier = Modifier
-                                            .size(80.dp, 60.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
+                                            .size(60.dp, 45.dp)
+                                            .clip(RoundedCornerShape(6.dp)),
                                         contentScale = ContentScale.Crop
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
-
                                     Column(modifier = Modifier.weight(1f)) {
-                                        Text(video.title, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF251912), maxLines = 2)
-                                        Text("Canal: ${video.channelName} • ${video.durationText}", fontSize = 11.sp, color = Color.Gray)
+                                        Text(video.title, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1, color = Color(0xFF2E7D32))
+                                        Text("Canal: ${video.channelName}", fontSize = 9.sp, color = Color.Gray)
                                     }
-                                }
-
-                                Spacer(modifier = Modifier.height(8.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                        // Bloquear Canal
-                                        TextButton(
-                                            onClick = { viewModel.addBlockedChannel(video.channelName) },
-                                            modifier = Modifier.height(28.dp),
-                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                        ) {
-                                            Text("Bloquear Canal", color = Color(0xFFD32F2F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                        }
-
-                                        // Bloquear Termo
-                                        TextButton(
-                                            onClick = { viewModel.addBlockedWord(video.title.split(" ").firstOrNull() ?: video.title) },
-                                            modifier = Modifier.height(28.dp),
-                                            contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp)
-                                        ) {
-                                            Text("Bloquear Título", color = Color(0xFFD32F2F), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    }
-
-                                    // Liberar/Bloquear no App toggle
-                                    if (isAlreadyApproved) {
-                                        Button(
-                                            onClick = { viewModel.removeApprovedVideo(video.id) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE8F5E9)),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier.height(32.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                                        ) {
-                                            Text("Liberado ✨", color = Color(0xFF2E7D32), fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
-                                    } else {
-                                        Button(
-                                            onClick = { viewModel.approveVideoForApp(video) },
-                                            colors = ButtonDefaults.buttonColors(containerColor = SecondaryBlue),
-                                            shape = RoundedCornerShape(12.dp),
-                                            modifier = Modifier.height(32.dp),
-                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp)
-                                        ) {
-                                            Text("Liberar no App", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                        }
+                                    IconButton(
+                                        onClick = { viewModel.removeApprovedVideo(video.id) },
+                                        modifier = Modifier.size(36.dp)
+                                    ) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Remover", tint = Color(0xFFD32F2F), modifier = Modifier.size(18.dp))
                                     }
                                 }
                             }
@@ -2077,410 +2636,175 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
             }
         }
 
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Text(
-                    text = "Controle de Tempo de Tela",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceAround
+        // --- ABA 2: NAVEGAR NO YOUTUBE (WEBVIEW) ---
+        if (activeTab == 2) {
+            item {
+                Column(
+                    modifier = Modifier
+                        .fillParentMaxWidth()
+                        .height(650.dp)
+                        .shadow(1.dp, RoundedCornerShape(24.dp))
+                        .background(Color.White, RoundedCornerShape(24.dp))
+                        .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
+                        .padding(16.dp)
                 ) {
-                    val times = listOf(1, 15, 30, 60, 120)
-                    times.forEach { time ->
-                        val isSel = pConfig.screenTimeLimitMinutes == time
+                    var webViewRef by remember { mutableStateOf<WebView?>(null) }
+                    var webUrl by remember { mutableStateOf("https://m.youtube.com") }
+                    var webTitle by remember { mutableStateOf("YouTube Mobile") }
+                    var canGoBack by remember { mutableStateOf(false) }
+                    var canGoForward by remember { mutableStateOf(false) }
+
+                    // Browser Toolbar
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { webViewRef?.goBack() },
+                            enabled = canGoBack,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(if (canGoBack) Color(0xFFFFECE3) else Color(0xFFF5F5F5), CircleShape)
+                        ) {
+                            Icon(Icons.Filled.ArrowBack, contentDescription = "Voltar", tint = if (canGoBack) PrimaryOrange else Color.Gray)
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        IconButton(
+                            onClick = { webViewRef?.goForward() },
+                            enabled = canGoForward,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(if (canGoForward) Color(0xFFFFECE3) else Color(0xFFF5F5F5), CircleShape)
+                        ) {
+                            Icon(Icons.Filled.ArrowForward, contentDescription = "Avançar", tint = if (canGoForward) PrimaryOrange else Color.Gray)
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
+
+                        IconButton(
+                            onClick = { webViewRef?.reload() },
+                            modifier = Modifier.size(36.dp).background(Color(0xFFFFECE3), CircleShape)
+                        ) {
+                            Icon(Icons.Filled.Refresh, contentDescription = "Recarregar", tint = PrimaryOrange)
+                        }
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
                         Box(
                             modifier = Modifier
-                                .background(
-                                    if (isSel) PrimaryOrange else Color(0xFFFFECE3),
-                                    RoundedCornerShape(10.dp)
-                                )
-                                .clickable { viewModel.updateScreenTimeTimer(time) }
-                                .padding(horizontal = 14.dp, vertical = 8.dp)
+                                .weight(1f)
+                                .height(40.dp)
+                                .background(Color(0xFFF5F5F5), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFFE0E0E0), RoundedCornerShape(12.dp))
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.CenterStart
                         ) {
                             Text(
-                                text = if (time == 1) "1 Min (Teste)" else "${time}m",
+                                text = webTitle,
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                color = Color.DarkGray
+                            )
+                        }
+                    }
+
+                    // WebView Container
+                    Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        AndroidView(
+                            factory = { context ->
+                                WebView(context).apply {
+                                    layoutParams = ViewGroup.LayoutParams(
+                                        ViewGroup.LayoutParams.MATCH_PARENT,
+                                        ViewGroup.LayoutParams.MATCH_PARENT
+                                    )
+                                    webViewClient = object : WebViewClient() {
+                                        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                            super.onPageStarted(view, url, favicon)
+                                            if (url != null) {
+                                                webUrl = url
+                                                canGoBack = view?.canGoBack() == true
+                                                canGoForward = view?.canGoForward() == true
+                                            }
+                                        }
+
+                                        override fun onPageFinished(view: WebView?, url: String?) {
+                                            super.onPageFinished(view, url)
+                                            if (url != null) {
+                                                webUrl = url
+                                                webTitle = view?.title ?: url
+                                                canGoBack = view?.canGoBack() == true
+                                                canGoForward = view?.canGoForward() == true
+                                            }
+                                        }
+                                    }
+                                    settings.apply {
+                                        javaScriptEnabled = true
+                                        domStorageEnabled = true
+                                        databaseEnabled = true
+                                        mediaPlaybackRequiresUserGesture = false
+                                        userAgentString = "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Mobile Safari/537.36"
+                                    }
+                                    loadUrl(webUrl)
+                                    webViewRef = this
+                                }
+                            },
+                            update = { view ->
+                                webViewRef = view
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    // Approval Action Footer
+                    val videoId = com.example.data.GeminiService.extractYoutubeVideoId(webUrl)
+                    if (videoId != null) {
+                        val context = LocalContext.current
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Button(
+                            onClick = {
+                                viewModel.viewModelScope.launch(Dispatchers.Main) {
+                                    Toast.makeText(context, "Buscando detalhes do vídeo...", Toast.LENGTH_SHORT).show()
+                                    val videoDetails = withContext(Dispatchers.IO) {
+                                        com.example.data.GeminiService.getVideoDetailsViaAI(videoId, webTitle)
+                                    }
+                                    viewModel.approveVideoForApp(videoDetails)
+                                    Toast.makeText(context, "Vídeo liberado com sucesso: ${videoDetails.title}", Toast.LENGTH_LONG).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier.fillMaxWidth().height(48.dp)
+                        ) {
+                            Icon(Icons.Filled.Check, contentDescription = null, tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Liberar este vídeo no Leão Kids! ✨", fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    } else {
+                        Spacer(modifier = Modifier.height(12.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFFF9C4), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFFFBC02D), RoundedCornerShape(12.dp))
+                                .padding(12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "Navegue pelo YouTube e abra um vídeo para poder liberá-lo no app!",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (isSel) Color.White else PrimaryOrange
+                                color = Color(0xFF5D4037),
+                                textAlign = TextAlign.Center
                             )
                         }
                     }
                 }
             }
         }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "Modos de Segurança",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Modo Restrito de Canais", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Somente canais aprovados serão visíveis no app.", fontSize = 11.sp, color = Color.Gray)
-                    }
-                    Switch(
-                        checked = pConfig.isStrictChannelMode,
-                        onCheckedChange = { viewModel.changeStrictChannelMode(it) },
-                        colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3))
-                    )
-                }
-
-                Divider(color = Color(0xFFFFEADF))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Modo Curadoria Inteligente (IA)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        Text("Utiliza modelos Google Gemini para filtrar todas as buscas das crianças.", fontSize = 11.sp, color = Color.Gray)
-                    }
-                    Switch(
-                        checked = pConfig.isSmartCuratorMode,
-                        onCheckedChange = { viewModel.changeSmartCuratorMode(it) },
-                        colors = SwitchDefaults.colors(checkedThumbColor = PrimaryOrange, checkedTrackColor = Color(0xFFFFECE3)),
-                        modifier = Modifier.testTag("ai_curator_mode_switch")
-                    )
-                }
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Text(
-                    text = "Blacklist de Palavras",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = inputWord,
-                        onValueChange = { inputWord = it },
-                        placeholder = { Text("Adicionar palavra à blacklist...") },
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("add_banned_word_input"),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (inputWord.trim().isNotEmpty()) {
-                                viewModel.addBlockedWord(inputWord.trim())
-                                inputWord = ""
-                            }
-                        },
-                        modifier = Modifier
-                            .background(PrimaryOrange, CircleShape)
-                            .testTag("submit_banned_word_button")
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    wordsState.forEach { word ->
-                        AssistChip(
-                            onClick = { viewModel.removeBlockedWord(word.id) },
-                            label = { Text(word.word) },
-                            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) },
-                            colors = AssistChipDefaults.assistChipColors(leadingIconContentColor = Color.Red)
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Text(
-                    text = "Canais Bloqueados",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = inputChannel,
-                        onValueChange = { inputChannel = it },
-                        placeholder = { Text("Adicionar Canal a Bloquear...") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (inputChannel.trim().isNotEmpty()) {
-                                viewModel.addBlockedChannel(inputChannel.trim())
-                                inputChannel = ""
-                            }
-                        },
-                        modifier = Modifier.background(PrimaryOrange, CircleShape)
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    channelsState.forEach { channel ->
-                        AssistChip(
-                            onClick = { viewModel.removeBlockedChannel(channel.id) },
-                            label = { Text(channel.channelName) },
-                            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Text(
-                    text = "Canais Permitidos (Modo Aprovados)",
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF251912)
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedTextField(
-                        value = inputAllowedChannel,
-                        onValueChange = { inputAllowedChannel = it },
-                        placeholder = { Text("Permitir Canal...") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    IconButton(
-                        onClick = {
-                            if (inputAllowedChannel.trim().isNotEmpty()) {
-                                viewModel.addAllowedChannel(inputAllowedChannel.trim())
-                                inputAllowedChannel = ""
-                            }
-                        },
-                        modifier = Modifier.background(PrimaryOrange, CircleShape)
-                    ) {
-                        Icon(Icons.Filled.Add, contentDescription = "Add", tint = Color.White)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    allowedState.forEach { ch ->
-                        AssistChip(
-                            onClick = { viewModel.removeAllowedChannel(ch.id) },
-                            label = { Text(ch.channelName) },
-                            trailingIcon = { Icon(Icons.Filled.Close, contentDescription = null, modifier = Modifier.size(12.dp)) }
-                        )
-                    }
-                }
-            }
-        }
-
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(1.dp, RoundedCornerShape(24.dp))
-                    .background(Color.White, RoundedCornerShape(24.dp))
-                    .border(2.dp, Color(0xFFFFEADF), RoundedCornerShape(24.dp))
-                    .padding(20.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Tentativas de Busca de Segurança",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF251912)
-                    )
-
-                    if (searchLogsState.isNotEmpty()) {
-                        TextButton(onClick = { viewModel.clearBlockedSearchLogs() }) {
-                            Text("Limpar", color = Color.Red, fontSize = 12.sp)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                if (searchLogsState.isEmpty()) {
-                    Text(
-                        "Nenhuma atividade suspeita registrada. As crianças estão seguras! 🎉",
-                        fontSize = 12.sp,
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        searchLogsState.take(10).forEach { item ->
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFFFFDAD6), RoundedCornerShape(12.dp))
-                                    .padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
-                                    Text(
-                                        text = "Pesquisa: '${item.query}'",
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 13.sp,
-                                        color = Color(0xFF93000a)
-                                    )
-                                    Text(
-                                        text = "Filtrado pelo Leãozinho Inteligente",
-                                        fontSize = 10.sp,
-                                        color = Color.Red.copy(alpha = 0.7f)
-                                    )
-                                }
-
-                                Icon(
-                                    imageVector = Icons.Filled.Warning,
-                                    contentDescription = "Bloqueado",
-                                    tint = Color.Red,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
     }
 
-    if (showGoogleAuthSheet) {
-        AlertDialog(
-            onDismissRequest = { showGoogleAuthSheet = false },
-            title = { Text("Conectar com o Google", fontWeight = FontWeight.Bold) },
-            text = {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        "Escolha uma conta para autenticar com segurança no Leão Kids:",
-                        fontSize = 13.sp,
-                        color = Color.Gray,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    ListItem(
-                        headlineContent = { Text("André Silva", fontWeight = FontWeight.Bold) },
-                        supportingContent = { Text("dhenison@gmail.com") },
-                        leadingContent = {
-                            Icon(Icons.Filled.AccountCircle, contentDescription = null, tint = SecondaryBlue, modifier = Modifier.size(40.dp))
-                        },
-                        modifier = Modifier
-                            .background(Color(0x1B33A0FD), RoundedCornerShape(12.dp))
-                            .clickable {
-                                viewModel.connectMockGoogleAccount("dhenison@gmail.com", "André Silva")
-                                showGoogleAuthSheet = false
-                            }
-                    )
-                }
-            },
-            confirmButton = {},
-            dismissButton = {
-                TextButton(onClick = { showGoogleAuthSheet = false }) {
-                    Text("Cancelar", color = Color.Gray)
-                }
-            },
-            shape = RoundedCornerShape(24.dp)
-        )
-    }
 
     // Dialog for editing children profile details
     if (editingProfile != null) {
