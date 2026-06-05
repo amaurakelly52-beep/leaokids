@@ -1774,6 +1774,8 @@ fun ParentDashboardScreen(viewModel: LeaoViewModel) {
     var editBoyOption by remember { mutableStateOf(true) }
     var editAvatarUrl by remember { mutableStateOf("") }
 
+    var activeTab by remember { mutableStateOf(0) }
+
     val accountChooserLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
