@@ -57,6 +57,7 @@ import androidx.compose.ui.window.Dialog
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
+import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.options.IFramePlayerOptions
 import androidx.compose.ui.res.painterResource
 import coil.compose.AsyncImage
 import com.example.R
@@ -1742,11 +1743,15 @@ fun VideoPlayerScreen(viewModel: LeaoViewModel) {
     val playerView = remember(video.id) {
         YouTubePlayerView(context).apply {
             enableAutomaticInitialization = false
+            val options = IFramePlayerOptions.Builder(context)
+                .controls(1)
+                .origin("https://${context.packageName}")
+                .build()
             initialize(object : AbstractYouTubePlayerListener() {
                 override fun onReady(youTubePlayer: YouTubePlayer) {
                     youTubePlayer.loadVideo(video.id, 0f)
                 }
-            })
+            }, options)
         }
     }
 

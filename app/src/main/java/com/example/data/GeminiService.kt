@@ -416,14 +416,17 @@ object GeminiService {
      */
     fun extractYoutubeVideoId(url: String?): String? {
         if (url == null) return null
-        val pattern = "(?:v=|\\/embed\\/|\\/v\\/|youtu\\.be\\/|\\/watch\\?v=|\\&v=)([^#\\&\\?]{11})"
+        val pattern = "(?:v=|\\/embed\\/|\\/v\\/|\\/shorts\\/|youtu\\.be\\/|\\/watch\\?v=|\\&v=)([^#\\&\\?]{11})"
         val compiledPattern = Pattern.compile(pattern)
         val matcher = compiledPattern.matcher(url)
-        return if (matcher.find()) {
-            matcher.group(1)
-        } else {
-            null
+        if (matcher.find()) {
+            return matcher.group(1)
         }
+        val cleanUrl = url.trim()
+        if (cleanUrl.length == 11 && cleanUrl.matches(Regex("[a-zA-Z0-9_-]{11}"))) {
+            return cleanUrl
+        }
+        return null
     }
 }
 
